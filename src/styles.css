@@ -1,0 +1,887 @@
+/* ---------------------------------------------------------------------------
+   Rangemail — identité « courrier par avion » :
+   papier froid, encre marine, liseré tricolore des enveloppes par avion.
+--------------------------------------------------------------------------- */
+
+:root {
+  --encre: #1d2a3a;
+  --papier: #f1f2ef;
+  --carte: #ffffff;
+  --bleu-poste: #27519f;
+  --bleu-clair: #e8eef9;
+  --rouge-timbre: #c34a3e;
+  --rouge-clair: #f9ebe9;
+  --vert-tampon: #2e7d5b;
+  --vert-clair: #e7f2ed;
+  --gris: #75808b;
+  --ligne: #dfe3e0;
+  --ombre: 0 1px 2px rgba(29, 42, 58, 0.06), 0 8px 24px rgba(29, 42, 58, 0.07);
+  --police-titre: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --police-texte: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --police-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--police-texte);
+  font-size: 14px;
+  color: var(--encre);
+  background: var(--papier);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Liseré « par avion » : la signature visuelle de l'app. */
+.liseret {
+  height: 5px;
+  flex: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bleu-poste) 0 14px,
+    var(--carte) 14px 22px,
+    var(--rouge-timbre) 22px 36px,
+    var(--carte) 36px 44px
+  );
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ entête */
+
+.entete {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px 0 88px; /* place pour les feux de fenêtre macOS */
+  height: 52px;
+  background: var(--carte);
+  border-bottom: 1px solid var(--ligne);
+  user-select: none;
+}
+
+.entete .marque {
+  font-family: var(--police-titre);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.entete .devise {
+  color: var(--gris);
+  font-size: 12.5px;
+}
+
+.entete nav {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.entete nav button {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--gris);
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.entete nav button:hover {
+  background: var(--papier);
+  color: var(--encre);
+}
+
+.entete nav button.actif {
+  background: var(--bleu-clair);
+  color: var(--bleu-poste);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------- corps */
+
+.contenu {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 24px 48px;
+}
+
+.colonne {
+  max-width: 1020px;
+  margin: 0 auto;
+}
+
+.colonne.etroite {
+  max-width: 640px;
+}
+
+h1 {
+  font-family: var(--police-titre);
+  font-size: 30px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+h2 {
+  font-family: var(--police-titre);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.sous-titre {
+  color: var(--gris);
+  font-size: 14.5px;
+  margin: 0 0 28px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ cartes */
+
+.carte {
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.carte + .carte {
+  margin-top: 14px;
+}
+
+.carte.ombre {
+  box-shadow: var(--ombre);
+  border: none;
+}
+
+.grille-fournisseurs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.fournisseur {
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 12px;
+  padding: 22px 18px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.fournisseur:hover {
+  border-color: var(--bleu-poste);
+  box-shadow: var(--ombre);
+}
+
+.fournisseur .nom {
+  font-weight: 600;
+  font-size: 15px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.fournisseur .detail {
+  color: var(--gris);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+/* ----------------------------------------------------------------- boutons */
+
+button.principal,
+button.secondaire,
+button.danger,
+button.discret {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 9px;
+  padding: 9px 16px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+button.principal {
+  background: var(--bleu-poste);
+  color: #fff;
+}
+
+button.principal:hover {
+  background: #1e4185;
+}
+
+button.principal:disabled {
+  background: #9fb1d1;
+  cursor: default;
+}
+
+button.secondaire {
+  background: var(--carte);
+  border-color: var(--ligne);
+  color: var(--encre);
+}
+
+button.secondaire:hover {
+  border-color: var(--gris);
+}
+
+button.danger {
+  background: var(--rouge-clair);
+  color: var(--rouge-timbre);
+}
+
+button.danger:hover {
+  background: #f3ded9;
+}
+
+button.discret {
+  background: none;
+  color: var(--gris);
+  font-weight: 500;
+  padding: 6px 10px;
+}
+
+button.discret:hover {
+  color: var(--encre);
+}
+
+button.large {
+  font-size: 15px;
+  padding: 13px 26px;
+}
+
+/* --------------------------------------------------------------- formulaires */
+
+label.champ {
+  display: block;
+  margin-bottom: 14px;
+}
+
+label.champ span {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='number'],
+textarea,
+select {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 9px 11px;
+  border: 1px solid var(--ligne);
+  border-radius: 8px;
+  background: var(--carte);
+  color: var(--encre);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--bleu-poste);
+  outline-offset: 1px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.aide {
+  font-size: 12.5px;
+  color: var(--gris);
+  line-height: 1.5;
+}
+
+.aide a,
+.lien {
+  color: var(--bleu-poste);
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+.erreur {
+  background: var(--rouge-clair);
+  color: var(--rouge-timbre);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 12px 0;
+  line-height: 1.45;
+}
+
+.info {
+  background: var(--bleu-clair);
+  color: var(--bleu-poste);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 12px 0;
+  line-height: 1.45;
+}
+
+.succes {
+  background: var(--vert-clair);
+  color: var(--vert-tampon);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 12px 0;
+}
+
+/* --------------------------------------------------------------- onboarding */
+
+.etapes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+
+.etapes .point {
+  height: 4px;
+  flex: 1;
+  border-radius: 2px;
+  background: var(--ligne);
+}
+
+.etapes .point.fait {
+  background: var(--bleu-poste);
+}
+
+.choix-cartes {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.choix-cartes.trois {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.choix-cartes.deux {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.choix-carte {
+  border: 1.5px solid var(--ligne);
+  border-radius: 11px;
+  background: var(--carte);
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.choix-carte:hover {
+  border-color: var(--gris);
+}
+
+.choix-carte.choisi {
+  border-color: var(--bleu-poste);
+  background: var(--bleu-clair);
+}
+
+.choix-carte .titre {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 3px;
+}
+
+.choix-carte .detail {
+  font-size: 12.5px;
+  color: var(--gris);
+  line-height: 1.4;
+}
+
+.jetons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.jeton {
+  border: 1.5px solid var(--ligne);
+  background: var(--carte);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--encre);
+}
+
+.jeton.choisi {
+  border-color: var(--bleu-poste);
+  background: var(--bleu-clair);
+  color: var(--bleu-poste);
+  font-weight: 600;
+}
+
+.pied-etape {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 26px;
+}
+
+/* ----------------------------------------------------------------- tableau */
+
+.barre-comptes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.compte-jeton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid var(--ligne);
+  background: var(--carte);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--police-mono);
+}
+
+.compte-jeton.choisi {
+  border-color: var(--encre);
+  background: var(--encre);
+  color: #fff;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.stat {
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.stat .valeur {
+  font-family: var(--police-titre);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.stat .intitule {
+  color: var(--gris);
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+
+.onglets {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--ligne);
+  margin-bottom: 18px;
+}
+
+.onglets button {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 14px;
+  color: var(--gris);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.onglets button.actif {
+  color: var(--encre);
+  font-weight: 600;
+  border-bottom-color: var(--rouge-timbre);
+}
+
+.onglets .compteur {
+  font-family: var(--police-mono);
+  font-size: 11.5px;
+  background: var(--papier);
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-left: 6px;
+  color: var(--gris);
+}
+
+/* Rangée de libellé */
+
+.rangee-libelle {
+  border: 1px solid var(--ligne);
+  border-radius: 11px;
+  background: var(--carte);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.rangee-libelle > .tete {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  cursor: pointer;
+}
+
+.rangee-libelle > .tete:hover {
+  background: #fafbf9;
+}
+
+.rangee-libelle .nom-libelle {
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+.rangee-libelle .compte-mails {
+  margin-left: auto;
+  font-family: var(--police-mono);
+  font-size: 12px;
+  color: var(--gris);
+  white-space: nowrap;
+}
+
+.rangee-libelle .expediteurs {
+  border-top: 1px solid var(--ligne);
+  padding: 6px 16px 10px 44px;
+}
+
+.rangee-expediteur {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.rangee-expediteur .adresse {
+  color: var(--gris);
+  font-family: var(--police-mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rangee-expediteur .nombres {
+  margin-left: auto;
+  font-family: var(--police-mono);
+  font-size: 11.5px;
+  color: var(--gris);
+  white-space: nowrap;
+}
+
+input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--bleu-poste);
+  flex: none;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 5px;
+  padding: 2.5px 7px;
+  vertical-align: 1px;
+}
+
+.badge.ia {
+  background: var(--vert-clair);
+  color: var(--vert-tampon);
+}
+
+.badge.heuristique {
+  background: var(--bleu-clair);
+  color: var(--bleu-poste);
+}
+
+.badge.newsletter {
+  background: #f4efe3;
+  color: #8a6d1d;
+}
+
+.badge.spam {
+  background: var(--rouge-clair);
+  color: var(--rouge-timbre);
+}
+
+/* Table newsletters */
+
+table.liste {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+table.liste th {
+  text-align: left;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gris);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ligne);
+  background: #fafbf9;
+}
+
+table.liste td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ligne);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+table.liste tr:last-child td {
+  border-bottom: none;
+}
+
+td.mono,
+.mono {
+  font-family: var(--police-mono);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------- progression */
+
+.voile {
+  position: fixed;
+  inset: 0;
+  background: rgba(29, 42, 58, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.panneau-progression {
+  background: var(--carte);
+  border-radius: 14px;
+  padding: 30px 34px;
+  width: 430px;
+  box-shadow: var(--ombre);
+}
+
+.panneau-progression h2 {
+  margin-bottom: 2px;
+}
+
+.panneau-progression .note {
+  color: var(--gris);
+  font-size: 13px;
+  min-height: 20px;
+  margin-bottom: 14px;
+}
+
+.rail {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--papier);
+  overflow: hidden;
+}
+
+.rail .avancement {
+  height: 100%;
+  border-radius: 5px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bleu-poste) 0 12px,
+    #4e74bd 12px 18px,
+    var(--rouge-timbre) 18px 30px,
+    #d3766c 30px 36px
+  );
+  background-size: 200% 100%;
+  animation: defile 1.2s linear infinite;
+  transition: width 0.3s ease;
+}
+
+@keyframes defile {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 51px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail .avancement {
+    animation: none;
+  }
+}
+
+.rail .chiffres {
+  font-family: var(--police-mono);
+  font-size: 11.5px;
+  color: var(--gris);
+}
+
+.barre-action {
+  position: sticky;
+  bottom: 0;
+  margin-top: 22px;
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 12px;
+  box-shadow: var(--ombre);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.barre-action .resume {
+  font-size: 13px;
+  color: var(--gris);
+}
+
+.barre-action button {
+  margin-left: auto;
+}
+
+/* Écran vide / accueil */
+
+.heros {
+  text-align: center;
+  padding: 46px 0 20px;
+}
+
+.heros .timbre {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 20px;
+  border-radius: 14px;
+  background: var(--encre);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--police-titre);
+  font-size: 34px;
+  font-weight: 700;
+  position: relative;
+}
+
+.heros .timbre::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 1.5px dashed var(--ligne);
+  border-radius: 18px;
+}
+
+details.guide {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+details.guide summary {
+  cursor: pointer;
+  color: var(--bleu-poste);
+  font-weight: 600;
+}
+
+details.guide ol {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  line-height: 1.7;
+  color: var(--encre);
+}
+
+.ligne-compte {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ligne);
+}
+
+.ligne-compte:last-child {
+  border-bottom: none;
+}
+
+.ligne-compte .email {
+  font-family: var(--police-mono);
+  font-size: 13px;
+}
+
+.ligne-compte .type {
+  color: var(--gris);
+  font-size: 12px;
+}
+
+.ligne-compte button {
+  margin-left: auto;
+}
+
+.code-appareil {
+  font-family: var(--police-mono);
+  font-size: 26px;
+  letter-spacing: 0.18em;
+  text-align: center;
+  background: var(--papier);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 14px 0;
+  user-select: all;
+}

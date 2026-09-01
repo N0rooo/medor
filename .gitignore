@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+.DS_Store
+app-icon.svg.png
+
+# Identifiants OAuth locaux — ne jamais versionner
+src-tauri/oauth.local.json
