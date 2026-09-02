@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { AccountConfig, AppBootstrap, MsDeviceCodeInfo, ProviderId } from '../types'
+import Mascotte from '../Mascotte'
 
 interface Props {
   boot: AppBootstrap
@@ -47,7 +48,7 @@ export default function Accueil({ boot, onAccountAdded, onOpenSettings }: Props)
     <div className="colonne etroite">
       {premiere && (
         <div className="heros">
-          <div className="timbre">M</div>
+          <Mascotte taille={88} humeur="joie" style={{ marginBottom: 18 }} />
           <h1>Rangez votre boîte mail</h1>
           <p className="sous-titre">
             Connectez votre boîte, répondez à quelques questions, et Médor crée des libellés

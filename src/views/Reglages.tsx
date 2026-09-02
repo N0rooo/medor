@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { AppBootstrap } from '../types'
+import Mascotte from '../Mascotte'
 
 interface Props {
   boot: AppBootstrap
@@ -21,7 +22,7 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
   const [autoPortee, setAutoPortee] = useState(boot.settings.autoScope || 'lus')
   const [autoSpam, setAutoSpam] = useState(boot.settings.autoJunk)
   const [maintCompte, setMaintCompte] = useState(boot.accounts[0]?.id ?? '')
-  const [maintArme, setMaintArme] = useState<'rangemail' | 'tous' | null>(null)
+  const [maintArme, setMaintArme] = useState<'rangemail' | 'tous' | 'restaurer' | null>(null)
   const [maintOccupe, setMaintOccupe] = useState(false)
   const [maintResultat, setMaintResultat] = useState<string | null>(null)
 
@@ -30,11 +31,19 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
     setMaintOccupe(true)
     setMaintResultat(null)
     try {
-      const res = await api.deleteLabels(maintCompte, maintArme === 'rangemail')
-      setMaintResultat(
-        `${res.deleted} libellés supprimés.` +
-          (res.errors.length > 0 ? ` ${res.errors.length} erreurs : ${res.errors[0]}` : '')
-      )
+      if (maintArme === 'restaurer') {
+        const res = await api.restoreInbox(maintCompte)
+        setMaintResultat(
+          `${res.restored} mails remis dans la boîte de réception, ${res.foldersDeleted} dossiers Médor supprimés.` +
+            (res.errors.length > 0 ? ` ${res.errors.length} erreurs : ${res.errors[0]}` : '')
+        )
+      } else {
+        const res = await api.deleteLabels(maintCompte, maintArme === 'rangemail')
+        setMaintResultat(
+          `${res.deleted} libellés supprimés.` +
+            (res.errors.length > 0 ? ` ${res.errors.length} erreurs : ${res.errors[0]}` : '')
+        )
+      }
     } catch (e) {
       setMaintResultat(String(e))
     } finally {
@@ -52,7 +61,10 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
 
   return (
     <div className="colonne etroite">
-      <h1>Réglages</h1>
+      <h1>
+        <Mascotte taille={38} style={{ marginRight: 10, verticalAlign: -6 }} />
+        Réglages
+      </h1>
       <p className="sous-titre">
         Tout est stocké sur votre machine ; les clés et mots de passe vont dans le trousseau du
         système.
@@ -250,6 +262,29 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
       </div>
 
       <div className="carte">
+        <h2>Volume d’analyse</h2>
+        <p className="aide" style={{ marginBottom: 12 }}>
+          Nombre maximal de mails traités par analyse (les plus récents d’abord). Astuce : après
+          un rangement, relancer une analyse traite la tranche suivante — inutile de tout faire
+          d’un coup.
+        </p>
+        <label className="champ" style={{ maxWidth: 340 }}>
+          <span>Limite par analyse</span>
+          <select
+            value={boot.settings.scanLimit ?? 3000}
+            onChange={(e) =>
+              enregistrer({ scanLimit: Number(e.target.value) }, 'Limite d’analyse enregistrée.')
+            }
+          >
+            <option value={1000}>1 000 mails — éclair</option>
+            <option value={3000}>3 000 mails — recommandé</option>
+            <option value={10000}>10 000 mails — grosse session</option>
+            <option value={0}>Sans limite — toute la boîte d’un coup</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="carte">
         <h2>Rangement automatique</h2>
         <p className="aide" style={{ marginBottom: 12 }}>
           Médor analyse et range les nouveaux mails tout seul, à la fréquence choisie, sur tous
@@ -357,6 +392,13 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
             </label>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button
+                className="principal"
+                disabled={maintOccupe}
+                onClick={() => setMaintArme('restaurer')}
+              >
+                ↩︎ Annuler le rangement : tout remettre en boîte de réception
+              </button>
+              <button
                 className="danger"
                 disabled={maintOccupe}
                 onClick={() => setMaintArme('rangemail')}
@@ -370,12 +412,22 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
             {maintArme && (
               <div className="erreur" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span>
-                  {maintArme === 'tous'
-                    ? 'Vraiment supprimer TOUS les libellés de ce compte, y compris ceux créés à la main ?'
-                    : 'Supprimer les libellés créés par Médor sur ce compte ?'}
+                  {maintArme === 'restaurer'
+                    ? 'Vider tous les dossiers créés par Médor vers la boîte de réception, puis les supprimer ? Aucun mail n’est supprimé.'
+                    : maintArme === 'tous'
+                      ? 'Vraiment supprimer TOUS les libellés de ce compte, y compris ceux créés à la main ?'
+                      : 'Supprimer les libellés créés par Médor sur ce compte ?'}
                 </span>
-                <button className="danger" disabled={maintOccupe} onClick={supprimerLibelles}>
-                  {maintOccupe ? 'Suppression…' : 'Oui, supprimer'}
+                <button
+                  className={maintArme === 'restaurer' ? 'principal' : 'danger'}
+                  disabled={maintOccupe}
+                  onClick={supprimerLibelles}
+                >
+                  {maintOccupe
+                    ? 'En cours…'
+                    : maintArme === 'restaurer'
+                      ? 'Oui, tout remettre'
+                      : 'Oui, supprimer'}
                 </button>
                 <button className="secondaire" disabled={maintOccupe} onClick={() => setMaintArme(null)}>
                   Annuler

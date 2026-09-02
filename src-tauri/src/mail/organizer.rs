@@ -1,7 +1,7 @@
 use super::classify::GroupUids;
 use super::utf7;
 use super::ImapSession;
-use crate::types::{ApplyProgress, ApplyResult, ApplySelection, DeleteLabelsResult};
+use crate::types::{ApplyProgress, ApplyResult, ApplySelection, DeleteLabelsResult, RestoreResult};
 use std::collections::{HashMap, HashSet};
 
 const MOVE_CHUNK: usize = 200;
@@ -264,6 +264,82 @@ pub fn delete_labels(
             }
         }
     }
+    Ok(result)
+}
+
+/// Annule un rangement : remet dans la boîte de réception TOUS les mails des
+/// dossiers listés (ceux créés par Médor), puis supprime ces dossiers vides.
+/// Rien n'est jamais supprimé côté mails.
+pub fn restore_to_inbox(
+    session: &mut ImapSession,
+    folders_display: &[String],
+) -> Result<RestoreResult, String> {
+    let mut result = RestoreResult::default();
+
+    let names = session
+        .list(Some(""), Some("*"))
+        .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
+    let mut delimiter = "/".to_string();
+    for name in names.iter() {
+        if let Some(d) = name.delimiter() {
+            if !d.is_empty() {
+                delimiter = d.to_string();
+            }
+        }
+    }
+    drop(names);
+
+    // Les plus profonds d'abord : on vide et supprime les enfants avant les parents.
+    let mut folders: Vec<String> = folders_display.to_vec();
+    folders.sort_by_key(|n| std::cmp::Reverse(n.matches('/').count()));
+
+    for display in &folders {
+        let wire = utf7::encode(&display.replace('/', &delimiter));
+
+        match session.select(&wire) {
+            Ok(mailbox) => {
+                if mailbox.exists > 0 {
+                    let mut uids: Vec<u32> = match session.uid_search("ALL") {
+                        Ok(set) => set.into_iter().collect(),
+                        Err(e) => {
+                            result.errors.push(format!("« {display} » : {e}"));
+                            continue;
+                        }
+                    };
+                    uids.sort_unstable();
+                    for chunk in uids.chunks(MOVE_CHUNK) {
+                        let set = chunk
+                            .iter()
+                            .map(|u| u.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        match move_uids(session, &set, "INBOX") {
+                            Ok(()) => result.restored += chunk.len() as u32,
+                            Err(e) => result
+                                .errors
+                                .push(format!("Retour depuis « {display} » : {e}")),
+                        }
+                    }
+                }
+            }
+            Err(_) => continue, // dossier déjà absent : rien à faire
+        }
+
+        // On ne peut pas supprimer un dossier sélectionné : on repasse sur INBOX.
+        let _ = session.select("INBOX");
+        match session.delete(&wire) {
+            Ok(()) => result.folders_deleted += 1,
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if !msg.contains("exist") {
+                    result
+                        .errors
+                        .push(format!("Suppression de « {display} » : {e}"));
+                }
+            }
+        }
+    }
+
     Ok(result)
 }
 

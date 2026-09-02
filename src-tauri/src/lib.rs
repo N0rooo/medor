@@ -75,6 +75,7 @@ pub fn run() {
             commands::scan_account,
             commands::apply_plan,
             commands::delete_labels,
+            commands::restore_inbox,
             commands::unsubscribe_one_click
         ])
         .build(tauri::generate_context!())

@@ -5,6 +5,7 @@ import Accueil from './views/Accueil'
 import Onboarding from './views/Onboarding'
 import Dashboard from './views/Dashboard'
 import Reglages from './views/Reglages'
+import Mascotte from './Mascotte'
 
 type Vue = 'accueil' | 'onboarding' | 'tableau' | 'reglages'
 
@@ -48,8 +49,11 @@ export default function App() {
     <div className="app">
       <div className="liseret" />
       <header className="entete" data-tauri-drag-region>
-        <span className="marque">Médor</span>
-        <span className="devise">Le chien qui range votre boîte mail</span>
+        <Mascotte taille={30} />
+        <div className="marque-bloc" data-tauri-drag-region>
+          <span className="marque">Médor</span>
+          <span className="devise">Le chien qui range votre boîte mail</span>
+        </div>
         {navVisible && (
           <nav>
             <button className={vue === 'tableau' ? 'actif' : ''} onClick={() => setVue('tableau')}>

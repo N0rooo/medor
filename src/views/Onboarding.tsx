@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { OnboardingAnswers } from '../types'
+import Mascotte from '../Mascotte'
 
 interface Props {
   /** Réponses existantes : pré-remplit le questionnaire pour l'ajuster. */
@@ -39,6 +40,7 @@ export default function Onboarding({ initial, onDone, onCancel }: Props) {
 
       {etape === 0 && (
         <>
+          <Mascotte taille={56} style={{ marginBottom: 12 }} />
           <h1>Comment utilisez-vous cette boîte&nbsp;?</h1>
           <p className="sous-titre">
             Cela oriente les libellés proposés : une boîte pro n’est pas rangée comme une boîte
@@ -118,7 +120,7 @@ export default function Onboarding({ initial, onDone, onCancel }: Props) {
               [
                 [3, '3 derniers mois', 'Rapide, pour essayer.'],
                 [12, '12 derniers mois', 'Le bon équilibre.'],
-                [0, 'Toute la boîte', 'Jusqu’à 3 000 mails traités par analyse.']
+                [0, 'Toute la boîte', 'Par tranches de 3 000 mails (réglable dans les Réglages).']
               ] as const
             ).map(([val, titre, detail]) => (
               <button

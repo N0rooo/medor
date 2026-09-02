@@ -74,6 +74,12 @@ body {
   user-select: none;
 }
 
+.entete .marque-bloc {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
 .entete .marque {
   font-family: var(--police-titre);
   font-size: 19px;
@@ -112,6 +118,65 @@ body {
   background: var(--bleu-clair);
   color: var(--bleu-poste);
   font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- mascotte */
+
+.mascotte {
+  display: inline-block;
+  vertical-align: middle;
+  user-select: none;
+  border-radius: 22%;
+}
+
+.mascotte.renifle {
+  animation: renifle 1.4s ease-in-out infinite;
+  transform-origin: 50% 85%;
+}
+
+@keyframes renifle {
+  0%,
+  100% {
+    transform: rotate(-7deg) translateY(0);
+  }
+  25% {
+    transform: rotate(5deg) translateY(-4px);
+  }
+  50% {
+    transform: rotate(-4deg) translateY(1px);
+  }
+  75% {
+    transform: rotate(7deg) translateY(-3px);
+  }
+}
+
+.mascotte.joie {
+  animation: joie 0.9s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
+@keyframes joie {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-4deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(4deg);
+  }
+}
+
+.entete .mascotte {
+  transition: transform 0.18s ease;
+}
+
+.entete .mascotte:hover {
+  transform: rotate(-12deg) scale(1.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascotte {
+    animation: none !important;
+  }
 }
 
 /* ------------------------------------------------------------------- corps */
@@ -724,6 +789,47 @@ input[type='checkbox'] {
   border-top: 1px solid var(--ligne);
   background: #fbfcfa;
   padding: 12px 12px 4px 34px;
+}
+
+/* Édition des libellés dans le plan */
+
+.crayon {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  opacity: 0.35;
+  flex: none;
+}
+
+.tete:hover .crayon,
+.groupe-tete:hover .crayon {
+  opacity: 1;
+}
+
+.edition-nom {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 4px 8px !important;
+  border: 1.5px solid var(--bleu-poste) !important;
+  border-radius: 7px;
+  width: auto !important;
+  min-width: 220px;
+  max-width: 380px;
+}
+
+.mini-select {
+  font-size: 11.5px;
+  max-width: 180px;
+  padding: 3px 6px !important;
+  border: 1px solid var(--ligne);
+  border-radius: 6px;
+  background: var(--carte);
+  color: var(--gris);
+  width: auto !important;
+  flex: none;
 }
 
 /* Pastilles de couleur des libellés */

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, onApplyProgress, onScanProgress } from '../api'
 import type {
   AppBootstrap,
@@ -10,6 +10,7 @@ import type {
   ScanScope,
   SenderGroup
 } from '../types'
+import Mascotte from '../Mascotte'
 
 interface Props {
   boot: AppBootstrap
@@ -77,6 +78,8 @@ export default function Dashboard({
   const [spamCoches, setSpamCoches] = useState<Record<string, boolean>>({})
   const [portee, setPortee] = useState<ScanScope>('lus')
   const [couleurs, setCouleurs] = useState<Record<string, string>>({})
+  /** Copie modifiable des libellés du plan : renommages et réassociations. */
+  const [labelsEdit, setLabelsEdit] = useState<PlanLabel[]>([])
 
   useEffect(() => {
     const desabos: Promise<() => void>[] = [
@@ -126,6 +129,7 @@ export default function Dashboard({
       setExpediteursCoches({})
       setSpamCoches(spam)
       setCouleurs(teintes)
+      setLabelsEdit(p.labels)
       setPlan(p)
       setOnglet('libelles')
     } catch (e) {
@@ -140,9 +144,107 @@ export default function Dashboard({
     [spamCoches]
   )
 
+  /** Recalcule les compteurs et purge les libellés vides. */
+  const recalcule = (liste: PlanLabel[]): PlanLabel[] =>
+    liste
+      .filter((l) => l.senderKeys.length > 0)
+      .map((l) => {
+        let read = 0
+        let total = 0
+        for (const k of l.senderKeys) {
+          const s = parCle.get(k)
+          read += s?.read ?? 0
+          total += s?.total ?? 0
+        }
+        return { ...l, readCount: read, totalCount: total }
+      })
+
+  const renommerLabel = (ancien: string, nouveau: string) => {
+    const propre = nouveau.trim().replace(/\s*\/\s*/g, '/').replace(/^\/+|\/+$/g, '')
+    if (!propre || propre === ancien) return
+    setLabelsEdit((prev) => {
+      const source = prev.find((l) => l.name === ancien)
+      if (!source) return prev
+      const cible = prev.find((l) => l.name === propre)
+      const next = cible
+        ? prev
+            .filter((l) => l.name !== ancien)
+            .map((l) =>
+              l.name === propre ? { ...l, senderKeys: [...l.senderKeys, ...source.senderKeys] } : l
+            )
+        : prev.map((l) => (l.name === ancien ? { ...l, name: propre } : l))
+      return recalcule(next)
+    })
+    setLibellesCoches((prev) => {
+      const n = { ...prev }
+      const etait = n[ancien] ?? false
+      delete n[ancien]
+      n[propre] = (n[propre] ?? false) || etait
+      return n
+    })
+    setCouleurs((c) => {
+      const top = propre.split('/')[0]
+      return c[top] ? c : { ...c, [top]: couleurAuto(top) }
+    })
+  }
+
+  const renommerGroupe = (ancienTop: string, nouveauTop: string) => {
+    const propre = nouveauTop.trim().replace(/\/+$/g, '')
+    if (!propre || propre === ancienTop) return
+    const renomme = (nom: string) =>
+      nom === ancienTop
+        ? propre
+        : nom.startsWith(ancienTop + '/')
+          ? propre + nom.slice(ancienTop.length)
+          : nom
+    setLabelsEdit((prev) => {
+      const map = new Map<string, PlanLabel>()
+      for (const l of prev) {
+        const nom = renomme(l.name)
+        const exist = map.get(nom)
+        if (exist) {
+          exist.senderKeys = [...exist.senderKeys, ...l.senderKeys]
+        } else {
+          map.set(nom, { ...l, name: nom, senderKeys: [...l.senderKeys] })
+        }
+      }
+      return recalcule([...map.values()])
+    })
+    setLibellesCoches((prev) => {
+      const n: Record<string, boolean> = {}
+      for (const [k, v] of Object.entries(prev)) {
+        const nom = renomme(k)
+        n[nom] = (n[nom] ?? false) || v
+      }
+      return n
+    })
+    setCouleurs((c) => {
+      const n = { ...c }
+      if (!n[propre]) n[propre] = c[ancienTop] ?? couleurAuto(propre)
+      return n
+    })
+  }
+
+  const reassigner = (senderKey: string, vers: string) => {
+    setLabelsEdit((prev) => {
+      const next = prev.map((l) => ({
+        ...l,
+        senderKeys: l.senderKeys.filter((k) => k !== senderKey)
+      }))
+      const cible = next.find((l) => l.name === vers)
+      if (cible) {
+        cible.senderKeys.push(senderKey)
+      } else {
+        next.push({ name: vers, senderKeys: [senderKey], readCount: 0, totalCount: 0 })
+      }
+      return recalcule(next)
+    })
+    setLibellesCoches((prev) => (prev[vers] === undefined ? { ...prev, [vers]: true } : prev))
+  }
+
   const selection = useMemo(() => {
     if (!plan) return { labels: [], junkSenderKeys: [] as string[], labelColors: {} }
-    const labels = plan.labels
+    const labels = labelsEdit
       .filter((l) => libellesCoches[l.name])
       .map((l) => ({
         name: l.name,
@@ -157,7 +259,7 @@ export default function Dashboard({
       if (couleurs[top]) labelColors[top] = couleurs[top]
     }
     return { labels, junkSenderKeys: [...clesSpamActives], labelColors }
-  }, [plan, libellesCoches, expediteursCoches, clesSpamActives, couleurs])
+  }, [plan, labelsEdit, libellesCoches, expediteursCoches, clesSpamActives, couleurs])
 
   const totalArchivables = useMemo(() => {
     let n = 0
@@ -213,6 +315,7 @@ export default function Dashboard({
 
       {!plan && !resultat && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>
+          <Mascotte taille={72} style={{ marginBottom: 14 }} />
           <h1>Prêt à ranger {compte?.email}</h1>
           <p className="sous-titre" style={{ maxWidth: 520, margin: '0 auto 24px' }}>
             Médor lit les en-têtes des mails (jamais leur contenu complet), propose des
@@ -247,6 +350,7 @@ export default function Dashboard({
 
       {plan && plan.senders.length === 0 && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>
+          <Mascotte taille={72} humeur="joie" style={{ marginBottom: 14 }} />
           <h1>Rien à ranger 🎉</h1>
           <p className="sous-titre" style={{ maxWidth: 520, margin: '0 auto 24px' }}>
             {plan.scope === 'lus' && 'Aucun mail lu à traiter dans la boîte de réception sur la période analysée.'}
@@ -306,6 +410,7 @@ export default function Dashboard({
           {onglet === 'libelles' && (
             <Libelles
               plan={plan}
+              labels={labelsEdit}
               parCle={parCle}
               libellesCoches={libellesCoches}
               setLibellesCoches={setLibellesCoches}
@@ -314,6 +419,9 @@ export default function Dashboard({
               clesSpamActives={clesSpamActives}
               couleurs={couleurs}
               setCouleurs={setCouleurs}
+              renommerLabel={renommerLabel}
+              renommerGroupe={renommerGroupe}
+              reassigner={reassigner}
             />
           )}
           {onglet === 'newsletters' && (
@@ -361,6 +469,7 @@ export default function Dashboard({
 
 function Libelles({
   plan,
+  labels,
   parCle,
   libellesCoches,
   setLibellesCoches,
@@ -368,9 +477,13 @@ function Libelles({
   setExpediteursCoches,
   clesSpamActives,
   couleurs,
-  setCouleurs
+  setCouleurs,
+  renommerLabel,
+  renommerGroupe,
+  reassigner
 }: {
   plan: Plan
+  labels: PlanLabel[]
   parCle: Map<string, SenderGroup>
   libellesCoches: Record<string, boolean>
   setLibellesCoches: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
@@ -379,10 +492,54 @@ function Libelles({
   clesSpamActives: Set<string>
   couleurs: Record<string, string>
   setCouleurs: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  renommerLabel: (ancien: string, nouveau: string) => void
+  renommerGroupe: (ancienTop: string, nouveauTop: string) => void
+  reassigner: (senderKey: string, vers: string) => void
 }) {
   const [ouverts, setOuverts] = useState<Record<string, boolean>>({})
   const [groupesOuverts, setGroupesOuverts] = useState<Record<string, boolean>>({})
   const [paletteOuverte, setPaletteOuverte] = useState<string | null>(null)
+  const [edition, setEdition] = useState<{ cible: string; groupe: boolean; valeur: string } | null>(
+    null
+  )
+
+  const nomsLabels = useMemo(() => labels.map((l) => l.name).sort(), [labels])
+
+  const validerEdition = () => {
+    if (!edition) return
+    if (edition.groupe) renommerGroupe(edition.cible, edition.valeur)
+    else renommerLabel(edition.cible, edition.valeur)
+    setEdition(null)
+  }
+
+  const crayon = (cible: string, groupe: boolean) => (
+    <button
+      className="crayon"
+      title="Renommer"
+      onClick={(e) => {
+        e.stopPropagation()
+        setEdition({ cible, groupe, valeur: cible })
+      }}
+    >
+      ✏️
+    </button>
+  )
+
+  const champEdition = () =>
+    edition && (
+      <input
+        className="edition-nom"
+        autoFocus
+        value={edition.valeur}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setEdition({ ...edition, valeur: e.target.value })}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') validerEdition()
+          if (e.key === 'Escape') setEdition(null)
+        }}
+        onBlur={validerEdition}
+      />
+    )
 
   const existants = useMemo(
     () => new Set(plan.existingLabels.map((n) => n.toLowerCase())),
@@ -430,7 +587,7 @@ function Libelles({
   const groupes = useMemo(() => {
     const ordre: string[] = []
     const map = new Map<string, PlanLabel[]>()
-    for (const l of plan.labels) {
+    for (const l of labels) {
       const racine = l.name.split('/')[0]
       if (!map.has(racine)) {
         map.set(racine, [])
@@ -439,7 +596,7 @@ function Libelles({
       map.get(racine)!.push(l)
     }
     return ordre.map((racine) => ({ racine, items: map.get(racine)! }))
-  }, [plan])
+  }, [labels])
 
   const rangee = (l: PlanLabel, nomAffiche: string, topCouleur?: string) => {
     const ouvert = ouverts[l.name] ?? false
@@ -453,7 +610,12 @@ function Libelles({
             onChange={(e) => setLibellesCoches((prev) => ({ ...prev, [l.name]: e.target.checked }))}
           />
           {topCouleur && pastille(topCouleur)}
-          <span className="nom-libelle">{nomAffiche}</span>
+          {edition && !edition.groupe && edition.cible === l.name ? (
+            champEdition()
+          ) : (
+            <span className="nom-libelle">{nomAffiche}</span>
+          )}
+          {crayon(l.name, false)}
           {badgeEtat(l.name)}
           <span className="compte-mails">
             {l.totalCount.toLocaleString('fr-FR')} mails · {l.senderKeys.length} expéditeurs{' '}
@@ -481,6 +643,19 @@ function Libelles({
                   <span className="adresse">{s.address}</span>
                   {s.isNewsletter && <span className="badge newsletter">newsletter</span>}
                   {enSpam && <span className="badge spam">→ indésirables</span>}
+                  <select
+                    className="mini-select"
+                    title="Déplacer vers un autre libellé"
+                    value={l.name}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => reassigner(k, e.target.value)}
+                  >
+                    {nomsLabels.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
                   <span className="nombres">{s.total} mails</span>
                 </div>
               )
@@ -508,7 +683,9 @@ function Libelles({
         )}
         {plan.scope === 'tous' && <>Tous les mails analysés sont concernés, lus comme non lus.</>}{' '}
         La pastille ronde choisit la <strong>couleur</strong> du libellé (appliquée sur Gmail au
-        moment du rangement).
+        moment du rangement). ✏️ renomme un libellé ou un groupe (Entrée pour valider — même nom
+        qu’un autre = fusion) ; le menu déroulant d’un expéditeur le déplace vers un autre
+        libellé.
         <br />
         <span className="badge nouveau">sera créé</span> nouveau libellé ·{' '}
         <span className="badge existant">déjà en place</span> libellé existant, simplement
@@ -545,9 +722,14 @@ function Libelles({
                 }
               />
               {pastille(racine)}
-              <span className="nom-libelle">
-                {groupeOuvert ? '📂' : '📁'} {racine}
-              </span>
+              {edition && edition.groupe && edition.cible === racine ? (
+                champEdition()
+              ) : (
+                <span className="nom-libelle">
+                  {groupeOuvert ? '📂' : '📁'} {racine}
+                </span>
+              )}
+              {crayon(racine, true)}
               {badgeEtat(racine)}
               <span className="compte-mails">
                 {total.toLocaleString('fr-FR')} mails · {items.length} sous-dossiers{' '}
@@ -754,18 +936,52 @@ const PHASES: Record<ScanProgress['phase'], string> = {
   ia: 'Classement intelligent par l’IA…'
 }
 
+function formatDuree(s: number): string {
+  if (s < 60) return `${s} s`
+  return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`
+}
+
 function VoileProgression({ scan }: { scan: ScanProgress }) {
+  const [maintenant, setMaintenant] = useState(() => Date.now())
+  const debutPhase = useRef(Date.now())
+  const phasePrec = useRef(scan.phase)
+  if (scan.phase !== phasePrec.current) {
+    phasePrec.current = scan.phase
+    debutPhase.current = Date.now()
+  }
+  useEffect(() => {
+    const t = setInterval(() => setMaintenant(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const ecoule = Math.max(0, Math.floor((maintenant - debutPhase.current) / 1000))
   const pct = scan.total > 0 ? Math.round((scan.done / scan.total) * 100) : null
+
+  let estimation: string | null = null
+  if (scan.phase === 'ia' && scan.done > 0 && scan.done < scan.total) {
+    const restant = Math.round((ecoule / scan.done) * (scan.total - scan.done))
+    if (restant > 3) estimation = `≈ ${formatDuree(restant)} restantes`
+  }
+
   return (
     <div className="voile">
       <div className="panneau-progression">
-        <h2>Analyse en cours</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <Mascotte taille={46} humeur="renifle" />
+          <h2 style={{ margin: 0 }}>Médor renifle la boîte…</h2>
+        </div>
         <div className="note">
           {PHASES[scan.phase]}
           {scan.phase === 'lecture' && scan.total > 0 && ` (${scan.done}/${scan.total})`}
-          {scan.phase === 'ia' && scan.total > 0 && ` (lot ${Math.min(scan.done + 1, scan.total)}/${scan.total})`}
+          {scan.phase === 'ia' && scan.total > 0 && ` — étape ${scan.done}/${scan.total}`}
           {scan.note ? ` — ${scan.note}` : ''}
         </div>
+        {scan.phase === 'ia' && (
+          <div className="note" style={{ minHeight: 18 }}>
+            Les lots partent en parallèle — écoulé : {formatDuree(ecoule)}
+            {estimation ? ` · ${estimation}` : ''}
+          </div>
+        )}
         <div className="rail">
           <div className="avancement" style={{ width: pct !== null ? `${pct}%` : '100%' }} />
         </div>
@@ -779,7 +995,10 @@ function VoileApplication({ p }: { p: ApplyProgress }) {
   return (
     <div className="voile">
       <div className="panneau-progression">
-        <h2>Rangement en cours</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <Mascotte taille={46} humeur="renifle" />
+          <h2 style={{ margin: 0 }}>Médor range…</h2>
+        </div>
         <div className="note">
           {p.label ? `Libellé « ${p.label} »` : 'Préparation…'}
           {p.total > 0 && ` — ${p.done.toLocaleString('fr-FR')}/${p.total.toLocaleString('fr-FR')} mails`}
@@ -797,7 +1016,10 @@ function VoileApplication({ p }: { p: ApplyProgress }) {
 function Resultat({ resultat, onRelancer }: { resultat: ApplyResult; onRelancer: () => void }) {
   return (
     <div className="carte ombre" style={{ marginBottom: 20 }}>
-      <h1>Boîte rangée ✓</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Mascotte taille={56} humeur="joie" />
+        <h1 style={{ margin: 0 }}>Boîte rangée ✓</h1>
+      </div>
       <p className="sous-titre" style={{ marginBottom: 14 }}>
         <strong>{resultat.archived.toLocaleString('fr-FR')}</strong> mails archivés,{' '}
         <strong>{resultat.labelsCreated}</strong> libellés créés

@@ -65,6 +65,8 @@ pub struct Settings {
     pub auto_scope: String,
     /// Déplacer aussi les indésirables détectés lors du rangement automatique.
     pub auto_junk: bool,
+    /// Nombre maximal de mails par analyse (0 = sans limite).
+    pub scan_limit: u32,
 }
 
 impl Default for Settings {
@@ -79,6 +81,7 @@ impl Default for Settings {
             auto_hour: 8,
             auto_scope: "lus".into(),
             auto_junk: false,
+            scan_limit: 3000,
         }
     }
 }
@@ -219,6 +222,16 @@ pub struct DeleteLabelsResult {
     pub errors: Vec<String>,
 }
 
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    /// Mails remis dans la boîte de réception.
+    pub restored: u32,
+    /// Dossiers créés par Médor supprimés après vidage.
+    pub folders_deleted: u32,
+    pub errors: Vec<String>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MsDeviceCodeInfo {
@@ -271,4 +284,5 @@ pub struct SettingsPatch {
     pub auto_hour: Option<u8>,
     pub auto_scope: Option<String>,
     pub auto_junk: Option<bool>,
+    pub scan_limit: Option<u32>,
 }

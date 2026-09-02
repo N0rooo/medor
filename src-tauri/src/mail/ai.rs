@@ -109,6 +109,8 @@ fn run_claude_cli(bin: &PathBuf, prompt: &str) -> Result<String, String> {
 }
 
 /// Demande à Claude un libellé de classement pour chaque expéditeur.
+/// Les lots sont traités EN PARALLÈLE, puis une passe d'harmonisation fusionne
+/// les libellés quasi-doublons créés par des lots indépendants.
 /// Renvoie une table clé d'expéditeur -> libellé (« Libellé » ou « Libellé/Sous-libellé »).
 pub fn ai_label_senders(
     auth: &AiAuth,
@@ -116,8 +118,10 @@ pub fn ai_label_senders(
     onboarding: &OnboardingAnswers,
     existing_labels: &[String],
     senders: &[SenderGroup],
-    emit: &dyn Fn(u32, u32),
+    emit: &(dyn Fn(u32, u32) + Sync),
 ) -> Result<HashMap<String, String>, String> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(600))
         .build()
@@ -125,49 +129,166 @@ pub fn ai_label_senders(
 
     let system = build_system_prompt(onboarding, existing_labels);
     let considered = &senders[..senders.len().min(MAX_SENDERS)];
-    let mut labels: HashMap<String, String> = HashMap::new();
-    let total_batches = considered.chunks(BATCH_SIZE).count() as u32;
+    let batches: Vec<&[SenderGroup]> = considered.chunks(BATCH_SIZE).collect();
+    // +1 : la passe d'harmonisation finale.
+    let total = batches.len() as u32 + 1;
+    emit(0, total);
 
-    for (index, batch) in considered.chunks(BATCH_SIZE).enumerate() {
-        emit(index as u32, total_batches);
-        let payload: Vec<Value> = batch
+    let done = AtomicU32::new(0);
+    let results: Vec<Result<HashMap<String, String>, String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = batches
             .iter()
-            .map(|s| {
-                json!({
-                    "cle": s.key,
-                    "nom": s.name,
-                    "domaine": s.domain,
-                    "sujets": s.sample_subjects.iter().take(3).collect::<Vec<_>>(),
-                    "nombre": s.total,
-                    "newsletter": s.is_newsletter,
+            .map(|batch| {
+                let client = &client;
+                let system = &system;
+                let done = &done;
+                scope.spawn(move || {
+                    let res = classify_batch(auth, client, model, system, batch);
+                    let fini = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    emit(fini, total);
+                    res
                 })
             })
             .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err("erreur interne d'un lot".into())))
+            .collect()
+    });
 
-        let user_content = serde_json::to_string(&payload).unwrap_or_default();
-        let text = match auth {
-            AiAuth::ApiKey(key) => request_via_api(&client, key, model, &system, &user_content)?,
-            AiAuth::ClaudeCli(bin) => {
-                run_claude_cli(bin, &format!("{system}\n\nVoici les expéditeurs :\n{user_content}"))?
-            }
-        };
-
-        let parsed = extract_json_object(&text)
-            .ok_or_else(|| "Réponse de l'IA sans objet JSON exploitable".to_string())?;
-        if let Value::Object(map) = parsed {
-            for (key, val) in map {
-                if let Some(label) = val.as_str() {
-                    let clean = sanitize_label(label);
-                    if !clean.is_empty() {
-                        labels.insert(key, clean);
-                    }
+    let mut labels: HashMap<String, String> = HashMap::new();
+    let mut premiere_erreur: Option<String> = None;
+    for res in results {
+        match res {
+            Ok(map) => labels.extend(map),
+            Err(e) => {
+                if premiere_erreur.is_none() {
+                    premiere_erreur = Some(e);
                 }
             }
         }
     }
+    if labels.is_empty() {
+        return Err(premiere_erreur.unwrap_or_else(|| "aucune réponse exploitable de l'IA".into()));
+    }
 
-    emit(total_batches, total_batches);
+    // Harmonisation : « Sport », « Running » et « Sport & Running » -> un seul libellé.
+    if let Ok(mapping) = harmonize(auth, &client, model, existing_labels, &labels) {
+        for valeur in labels.values_mut() {
+            if let Some(nouveau) = mapping.get(valeur.as_str()) {
+                *valeur = nouveau.clone();
+                continue;
+            }
+            let racine = valeur.split('/').next().unwrap_or("").to_string();
+            if let Some(nouvelle_racine) = mapping.get(racine.as_str()) {
+                let reste = valeur[racine.len()..].to_string();
+                *valeur = format!("{nouvelle_racine}{reste}");
+            }
+        }
+    }
+
+    emit(total, total);
     Ok(labels)
+}
+
+/// Classe un lot d'expéditeurs.
+fn classify_batch(
+    auth: &AiAuth,
+    client: &reqwest::blocking::Client,
+    model: &str,
+    system: &str,
+    batch: &[SenderGroup],
+) -> Result<HashMap<String, String>, String> {
+    let payload: Vec<Value> = batch
+        .iter()
+        .map(|s| {
+            json!({
+                "cle": s.key,
+                "nom": s.name,
+                "domaine": s.domain,
+                "sujets": s.sample_subjects.iter().take(3).collect::<Vec<_>>(),
+                "nombre": s.total,
+                "newsletter": s.is_newsletter,
+            })
+        })
+        .collect();
+
+    let user_content = serde_json::to_string(&payload).unwrap_or_default();
+    let text = match auth {
+        AiAuth::ApiKey(key) => request_via_api(client, key, model, system, &user_content)?,
+        AiAuth::ClaudeCli(bin) => {
+            run_claude_cli(bin, &format!("{system}\n\nVoici les expéditeurs :\n{user_content}"))?
+        }
+    };
+
+    let parsed = extract_json_object(&text)
+        .ok_or_else(|| "Réponse de l'IA sans objet JSON exploitable".to_string())?;
+    let mut labels = HashMap::new();
+    if let Value::Object(map) = parsed {
+        for (key, val) in map {
+            if let Some(label) = val.as_str() {
+                let clean = sanitize_label(label);
+                if !clean.is_empty() {
+                    labels.insert(key, clean);
+                }
+            }
+        }
+    }
+    Ok(labels)
+}
+
+/// Fusionne les libellés redondants créés par des lots indépendants.
+/// Renvoie une table ancien -> nouveau (vide si rien à fusionner).
+fn harmonize(
+    auth: &AiAuth,
+    client: &reqwest::blocking::Client,
+    model: &str,
+    existing_labels: &[String],
+    labels: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, String> {
+    let mut distincts: Vec<String> = labels.values().cloned().collect();
+    distincts.sort();
+    distincts.dedup();
+    if distincts.len() < 8 {
+        return Ok(HashMap::new());
+    }
+
+    let existants = if existing_labels.is_empty() {
+        "(aucun)".to_string()
+    } else {
+        existing_labels.join(" · ")
+    };
+    let prompt = format!(
+        "Voici des libellés de classement d'une boîte mail, créés par lots indépendants. Certains sont des doublons ou quasi-doublons thématiques (ex. « Sport », « Running » et « Sport & Running » doivent devenir un seul libellé).\n\
+        Réponds UNIQUEMENT avec un objet JSON {{\"ancien\": \"nouveau\", ...}} listant les fusions/renommages — n'inclus QUE les libellés qui changent.\n\
+        Règles : ne touche jamais aux libellés déjà existants dans la boîte ({existants}) — fusionne plutôt les nouveaux vers eux quand le thème correspond ; vise une taxonomie compacte (une douzaine de racines maximum) ; garde le format « Racine » ou « Racine/Sous-libellé », en français.\n\n\
+        Libellés à examiner : {}",
+        distincts.join(" · ")
+    );
+
+    let text = match auth {
+        AiAuth::ApiKey(key) => request_via_api(
+            client,
+            key,
+            model,
+            "Tu harmonises des taxonomies de libellés de boîtes mail.",
+            &prompt,
+        )?,
+        AiAuth::ClaudeCli(bin) => run_claude_cli(bin, &prompt)?,
+    };
+
+    let mut mapping = HashMap::new();
+    if let Some(Value::Object(map)) = extract_json_object(&text) {
+        for (ancien, nouveau) in map {
+            if let Some(n) = nouveau.as_str() {
+                let clean = sanitize_label(n);
+                if !clean.is_empty() && clean != ancien {
+                    mapping.insert(ancien, clean);
+                }
+            }
+        }
+    }
+    Ok(mapping)
 }
 
 /// Appel direct de l'API Anthropic (chemin « clé API »).

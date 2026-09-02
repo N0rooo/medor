@@ -2,8 +2,6 @@ use super::ImapSession;
 use crate::types::ScanProgress;
 use mailparse::MailHeaderMap;
 
-/// Nombre maximal de messages analysés par scan.
-const MAX_MESSAGES: usize = 3000;
 const FETCH_CHUNK: usize = 300;
 
 #[derive(Clone, Debug)]
@@ -21,10 +19,12 @@ pub struct ScannedMessage {
 }
 
 /// `scope` : "tous" (tout), "lus" (SEEN) ou "nonlus" (UNSEEN).
+/// `max_messages` : plafond par analyse (0 = sans limite), les plus récents d'abord.
 pub fn scan_inbox(
     session: &mut ImapSession,
     horizon_months: u32,
     scope: &str,
+    max_messages: u32,
     emit: &dyn Fn(ScanProgress),
 ) -> Result<(Vec<ScannedMessage>, u32), String> {
     let mailbox = session
@@ -62,8 +62,13 @@ pub fn scan_inbox(
         .into_iter()
         .collect();
     uids.sort_unstable();
-    if uids.len() > MAX_MESSAGES {
-        uids = uids.split_off(uids.len() - MAX_MESSAGES);
+    let plafond = if max_messages == 0 {
+        usize::MAX
+    } else {
+        max_messages as usize
+    };
+    if uids.len() > plafond {
+        uids = uids.split_off(uids.len() - plafond);
     }
 
     let total = uids.len() as u32;

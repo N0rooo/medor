@@ -12,6 +12,7 @@ import type {
   MsDeviceCodeInfo,
   OnboardingAnswers,
   Plan,
+  RestoreResult,
   ScanProgress,
   ScanScope,
   SettingsPatch,
@@ -36,6 +37,7 @@ export const api = {
     invoke<Plan>('scan_account', { accountId, scope }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>
     invoke<DeleteLabelsResult>('delete_labels', { accountId, onlyRangemail }),
+  restoreInbox: (accountId: string) => invoke<RestoreResult>('restore_inbox', { accountId }),
   applyPlan: (accountId: string, selection: ApplySelection) =>
     invoke<ApplyResult>('apply_plan', { accountId, selection }),
   unsubscribeOneClick: (accountId: string, senderKey: string) =>

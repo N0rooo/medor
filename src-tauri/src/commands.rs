@@ -163,6 +163,9 @@ pub async fn set_settings(app: AppHandle, patch: SettingsPatch) -> Result<AppBoo
     if let Some(v) = patch.auto_junk {
         cfg.settings.auto_junk = v;
     }
+    if let Some(v) = patch.scan_limit {
+        cfg.settings.scan_limit = v;
+    }
     store::save_config(&app, &cfg);
     if let Some(key) = patch.anthropic_key {
         store::set_anthropic_key(&app, &key);
@@ -421,8 +424,13 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
         .unwrap_or_default();
 
     let emit_progress = |p: ScanProgress| emit_scan(&app, p);
-    let (messages, inbox_total) =
-        scanner::scan_inbox(&mut session, onboarding.horizon_months, &scope, &emit_progress)?;
+    let (messages, inbox_total) = scanner::scan_inbox(
+        &mut session,
+        onboarding.horizon_months,
+        &scope,
+        cfg.settings.scan_limit,
+        &emit_progress,
+    )?;
     let _ = session.logout();
 
     emit_scan(
@@ -828,6 +836,49 @@ fn auto_sort_account(
             label_colors: HashMap::new(),
         },
     )
+}
+
+/// Annulation d'urgence : remet en boîte de réception tous les mails des
+/// dossiers créés par Médor sur ce compte, puis supprime ces dossiers.
+#[tauri::command]
+pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<RestoreResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _busy = BusyGuard::try_new(&app, &account_id)
+            .ok_or("Une opération est déjà en cours sur ce compte.")?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let tracked = cfg
+            .created_labels
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_default();
+        if tracked.is_empty() {
+            return Err(
+                "Médor n'a pas de liste de dossiers créés pour ce compte — rien à annuler \
+                 automatiquement. Les mails restent retrouvables dans les dossiers du compte."
+                    .into(),
+            );
+        }
+
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let result = organizer::restore_to_inbox(&mut session, &tracked)?;
+        let _ = session.logout();
+
+        let mut cfg2 = store::load_config(&app);
+        cfg2.created_labels.remove(&account_id);
+        store::save_config(&app, &cfg2);
+
+        let state = app.state::<AppState>();
+        state.scans.lock().unwrap().remove(&account_id);
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---------------------------------------------------------------- Désabonnement

@@ -37,6 +37,8 @@ export interface Settings {
   autoHour: number
   autoScope: string
   autoJunk: boolean
+  /** Nombre maximal de mails par analyse (0 = sans limite). */
+  scanLimit: number
 }
 
 export interface AppBootstrap {
@@ -134,6 +136,12 @@ export interface DeleteLabelsResult {
   errors: string[]
 }
 
+export interface RestoreResult {
+  restored: number
+  foldersDeleted: number
+  errors: string[]
+}
+
 export interface UnsubscribeResult {
   ok: boolean
   method: 'one-click' | 'lien' | 'mailto' | 'aucun'
@@ -159,6 +167,7 @@ export interface SettingsPatch {
   autoHour?: number
   autoScope?: string
   autoJunk?: boolean
+  scanLimit?: number
 }
 
 export const DEFAULT_CATEGORIES = [
