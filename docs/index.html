@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Médor — le chien qui range ta boîte mail</title>
+  <meta name="description" content="Médor renifle tes mails, crée des dossiers malins, archive ce que tu as lu et t'aide à te désabonner des newsletters. App Mac gratuite et open source.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <meta property="og:title" content="Médor — le chien qui range ta boîte mail">
+  <meta property="og:description" content="Connecte ta boîte, réponds à deux questions, valide le plan. Médor rapporte.">
+  <meta property="og:image" content="https://n0rooo.github.io/medor/medor.png">
+  <style>
+    :root {
+      --encre: #1d2a3a;
+      --papier: #f1f2ef;
+      --carte: #ffffff;
+      --bleu: #27519f;
+      --bleu-clair: #e8eef9;
+      --rouge: #c34a3e;
+      --vert: #2e7d5b;
+      --vert-clair: #e7f2ed;
+      --gris: #75808b;
+      --ligne: #dfe3e0;
+      --titre: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+      --texte: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--texte);
+      font-size: 16px;
+      color: var(--encre);
+      background: var(--papier);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.55;
+    }
+    .liseret {
+      height: 6px;
+      background: repeating-linear-gradient(-45deg,
+        var(--bleu) 0 16px, var(--carte) 16px 25px,
+        var(--rouge) 25px 41px, var(--carte) 41px 50px);
+    }
+    .contenu { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+
+    header.site {
+      display: flex; align-items: center; gap: 12px;
+      padding: 18px 0;
+    }
+    header.site img { width: 34px; height: 34px; border-radius: 22%; }
+    header.site .nom { font-family: var(--titre); font-size: 22px; font-weight: 700; }
+    header.site nav { margin-left: auto; display: flex; gap: 18px; }
+    header.site a { color: var(--gris); text-decoration: none; font-size: 14.5px; }
+    header.site a:hover { color: var(--encre); }
+
+    /* ------------------------------------------------------------- héros */
+    .heros { text-align: center; padding: 56px 0 30px; }
+    .heros img.mascotte {
+      width: 132px; height: 132px; border-radius: 22%;
+      animation: joie 1.1s ease-in-out infinite;
+      transform-origin: 50% 100%;
+    }
+    @keyframes joie {
+      0%, 100% { transform: translateY(0) rotate(-4deg); }
+      50% { transform: translateY(-10px) rotate(4deg); }
+    }
+    @media (prefers-reduced-motion: reduce) { .heros img.mascotte { animation: none; } }
+    .heros h1 {
+      font-family: var(--titre);
+      font-size: clamp(34px, 6vw, 54px);
+      font-weight: 700;
+      margin: 22px 0 14px;
+      line-height: 1.12;
+    }
+    .heros .sous {
+      color: var(--gris); font-size: 18.5px; max-width: 620px;
+      margin: 0 auto 30px;
+    }
+    .cta-rang { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; align-items: center; }
+    .bouton {
+      display: inline-block; text-decoration: none; font-weight: 700;
+      border-radius: 12px; padding: 15px 28px; font-size: 17px;
+      transition: transform .12s ease;
+    }
+    .bouton:hover { transform: translateY(-2px); }
+    .bouton.os { background: var(--encre); color: #fff; }
+    .bouton.discret { background: transparent; color: var(--bleu); font-weight: 600; font-size: 15px; }
+    .precision { color: var(--gris); font-size: 13px; margin-top: 14px; font-family: var(--mono); }
+
+    .note-ouverture {
+      max-width: 560px; margin: 26px auto 0;
+      background: var(--bleu-clair); color: var(--bleu);
+      border-radius: 12px; padding: 12px 18px; font-size: 14px; text-align: left;
+    }
+
+    /* --------------------------------------------------------- la punchline */
+    .punch {
+      text-align: center; padding: 46px 0 8px;
+      font-family: var(--titre); font-size: clamp(22px, 3.4vw, 30px);
+      font-weight: 600;
+    }
+    .punch .gris { color: var(--gris); }
+
+    /* ------------------------------------------------------------ features */
+    .grille {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px; padding: 34px 0 10px;
+    }
+    .carte {
+      background: var(--carte); border: 1px solid var(--ligne);
+      border-radius: 14px; padding: 24px 22px;
+    }
+    .carte .picto { font-size: 26px; }
+    .carte h3 { font-family: var(--titre); font-size: 19px; margin: 10px 0 6px; }
+    .carte p { color: var(--gris); font-size: 14.5px; margin: 0; }
+
+    /* -------------------------------------------------------------- étapes */
+    section.etapes { padding: 52px 0 12px; }
+    h2.section {
+      font-family: var(--titre); font-size: clamp(26px, 4vw, 34px);
+      text-align: center; margin: 0 0 30px;
+    }
+    .pas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .pas .un {
+      background: var(--carte); border: 1px solid var(--ligne); border-radius: 14px;
+      padding: 24px 22px;
+    }
+    .pas .num {
+      font-family: var(--mono); font-size: 13px; color: var(--rouge);
+      border: 1.5px dashed var(--rouge); border-radius: 8px;
+      display: inline-block; padding: 2px 9px; margin-bottom: 12px;
+    }
+    .pas h3 { font-family: var(--titre); font-size: 19px; margin: 0 0 6px; }
+    .pas p { color: var(--gris); font-size: 14.5px; margin: 0; }
+
+    /* ---------------------------------------------------------- vie privée */
+    section.privee {
+      margin: 56px 0 0; background: var(--encre); border-radius: 18px;
+      padding: 44px 38px; color: #eef0ee;
+    }
+    section.privee h2 { font-family: var(--titre); font-size: clamp(24px, 3.6vw, 32px); margin: 0 0 14px; color: #fff; }
+    section.privee p { color: #b8c0c9; max-width: 660px; margin: 0 0 10px; font-size: 15.5px; }
+    section.privee strong { color: #fff; }
+
+    /* --------------------------------------------------------------- final */
+    .final { text-align: center; padding: 64px 0 26px; }
+    .final img { width: 76px; height: 76px; border-radius: 22%; margin-bottom: 16px; }
+    .final h2 { font-family: var(--titre); font-size: clamp(26px, 4vw, 34px); margin: 0 0 20px; }
+
+    footer.site {
+      border-top: 1px solid var(--ligne); margin-top: 40px;
+      padding: 26px 0 40px; display: flex; gap: 18px; flex-wrap: wrap;
+      align-items: center; color: var(--gris); font-size: 14px;
+    }
+    footer.site a { color: var(--bleu); text-decoration: none; }
+    footer.site a:hover { text-decoration: underline; }
+    footer.site .droite { margin-left: auto; }
+  </style>
+</head>
+<body>
+  <div class="liseret"></div>
+  <div class="contenu">
+
+    <header class="site">
+      <img src="medor.png" alt="Médor">
+      <span class="nom">Médor</span>
+      <nav>
+        <a href="#fonctions">Ce qu'il fait</a>
+        <a href="https://github.com/N0rooo/medor">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="heros">
+      <img class="mascotte" src="medor.png" alt="Médor, le chien qui range ta boîte mail">
+      <h1>Le chien qui range<br>ta boîte mail.</h1>
+      <p class="sous">
+        Médor renifle tes mails, invente des dossiers taillés pour <em>ta</em> boîte,
+        archive ce que tu as lu et t'aide à te désabonner des newsletters.
+        Toi, tu ne fais que valider.
+      </p>
+      <div class="cta-rang">
+        <a class="bouton os" href="https://github.com/N0rooo/medor/releases/latest/download/Medor.dmg">🦴 Adopter Médor pour Mac</a>
+        <a class="bouton discret" href="https://github.com/N0rooo/medor">Voir le code →</a>
+      </div>
+      <p class="precision">macOS (Apple Silicon) · gratuit · open source · 6 Mo</p>
+      <div class="note-ouverture">
+        <strong>Première ouverture :</strong> l'app n'est pas encore signée par Apple.
+        Fais un clic droit sur <em>Médor.app</em> → « Ouvrir » → « Ouvrir » (une seule fois, promis).
+      </div>
+    </section>
+
+    <p class="punch">Ta boîte de réception déborde.<br><span class="gris">Tu n'y penses plus. Lui, si.</span></p>
+
+    <section class="grille" id="fonctions">
+      <div class="carte">
+        <span class="picto">🔌</span>
+        <h3>Ta boîte, en un clic</h3>
+        <p>Gmail et Outlook se connectent par un simple bouton (OAuth). iCloud et n'importe quel IMAP aussi. Aucune clé à copier, rien à configurer.</p>
+      </div>
+      <div class="carte">
+        <span class="picto">🧠</span>
+        <h3>Une IA qui connaît ta boîte</h3>
+        <p>Médor s'appuie sur Claude — via ton abonnement Claude Code, ou ta clé API. Il invente les catégories qui collent à ta vie, et suit tes consignes écrites en français : « un dossier par client », c'est un ordre.</p>
+      </div>
+      <div class="carte">
+        <span class="picto">🗂️</span>
+        <h3>Des dossiers propres, en couleur</h3>
+        <p>« Banque & finance / BoursoBank », « Cinéma / Pathé »… Des hiérarchies nettes, des couleurs posées automatiquement dans Gmail, et jamais de doublons.</p>
+      </div>
+      <div class="carte">
+        <span class="picto">✂️</span>
+        <h3>Les newsletters au pied</h3>
+        <p>Toutes tes newsletters listées avec leur taux de lecture. Désabonnement en un clic quand l'expéditeur le permet, lien direct sinon.</p>
+      </div>
+      <div class="carte">
+        <span class="picto">⏰</span>
+        <h3>Il range pendant que tu vis</h3>
+        <p>Toutes les heures ou chaque matin à 8 h, Médor trie les nouveaux mails tout seul depuis la barre de menus, et te le raconte en une notification.</p>
+      </div>
+      <div class="carte">
+        <span class="picto">↩️</span>
+        <h3>Zéro angoisse</h3>
+        <p>Médor ne supprime jamais rien. Chaque plan est validé par toi avant d'agir, et un bouton « tout remettre en boîte de réception » annule l'intégralité du rangement.</p>
+      </div>
+    </section>
+
+    <section class="etapes">
+      <h2 class="section">Trois gestes, une boîte rangée</h2>
+      <div class="pas">
+        <div class="un">
+          <span class="num">01</span>
+          <h3>Connecte ta boîte</h3>
+          <p>Gmail, Outlook, iCloud ou IMAP. Le navigateur s'ouvre, tu autorises, c'est plié.</p>
+        </div>
+        <div class="un">
+          <span class="num">02</span>
+          <h3>Dis-lui deux mots</h3>
+          <p>Perso ou pro ? Des consignes particulières ? Quatre questions, ou passe ton chemin — Médor se débrouille.</p>
+        </div>
+        <div class="un">
+          <span class="num">03</span>
+          <h3>Valide, il rapporte</h3>
+          <p>Médor te montre son plan — dossiers, newsletters, indésirables. Tu décoches ce que tu veux, tu appliques. Bon chien.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="privee">
+      <h2>Tes mails restent chez toi.</h2>
+      <p><strong>Médor n'a pas de serveur.</strong> L'app tourne sur ton Mac et parle directement à ta messagerie, en chiffré. Tes mots de passe et jetons vivent dans le trousseau macOS.</p>
+      <p>Il ne lit que les <strong>en-têtes</strong> de tes mails — expéditeur, objet, date — jamais leur contenu. Et si tu actives l'IA, seuls ces en-têtes transitent vers Claude, avec ton propre compte.</p>
+      <p>Le code est <strong>open source</strong> : viens vérifier, c'est fait pour.</p>
+    </section>
+
+    <section class="final">
+      <img src="medor.png" alt="">
+      <h2>Adopte-le. Il est déjà propre.</h2>
+      <div class="cta-rang">
+        <a class="bouton os" href="https://github.com/N0rooo/medor/releases/latest/download/Medor.dmg">🦴 Télécharger Médor</a>
+      </div>
+      <p class="precision">macOS (Apple Silicon) · gratuit · open source</p>
+    </section>
+
+    <footer class="site">
+      <span>Fait en France 🇫🇷 avec beaucoup de croquettes</span>
+      <span class="droite">
+        <a href="https://github.com/N0rooo/medor">GitHub</a>
+        &nbsp;·&nbsp; de la même niche que <a href="https://rapporto.ai">Rapporto</a>
+      </span>
+    </footer>
+
+  </div>
+</body>
+</html>
