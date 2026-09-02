@@ -20,9 +20,11 @@ pub struct ScannedMessage {
     pub precedence_bulk: bool,
 }
 
+/// `scope` : "tous" (tout), "lus" (SEEN) ou "nonlus" (UNSEEN).
 pub fn scan_inbox(
     session: &mut ImapSession,
     horizon_months: u32,
+    scope: &str,
     emit: &dyn Fn(ScanProgress),
 ) -> Result<(Vec<ScannedMessage>, u32), String> {
     let mailbox = session
@@ -37,12 +39,21 @@ pub fn scan_inbox(
         note: None,
     });
 
-    let query = if horizon_months > 0 {
+    let mut criteres: Vec<String> = Vec::new();
+    match scope {
+        "lus" => criteres.push("SEEN".into()),
+        "nonlus" => criteres.push("UNSEEN".into()),
+        _ => {}
+    }
+    if horizon_months > 0 {
         let since = chrono::Utc::now() - chrono::Duration::days(horizon_months as i64 * 30);
         // Le format de date IMAP exige des mois en anglais abrégé (%b de chrono).
-        format!("SINCE {}", since.format("%d-%b-%Y"))
-    } else {
+        criteres.push(format!("SINCE {}", since.format("%d-%b-%Y")));
+    }
+    let query = if criteres.is_empty() {
         "ALL".to_string()
+    } else {
+        criteres.join(" ")
     };
 
     let mut uids: Vec<u32> = session

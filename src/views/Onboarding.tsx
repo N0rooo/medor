@@ -1,34 +1,27 @@
 import { useState } from 'react'
-import { DEFAULT_CATEGORIES, type OnboardingAnswers } from '../types'
+import type { OnboardingAnswers } from '../types'
 
 interface Props {
+  /** Réponses existantes : pré-remplit le questionnaire pour l'ajuster. */
+  initial?: OnboardingAnswers | null
   onDone: (answers: OnboardingAnswers) => void
+  /** Fourni quand on modifie des réponses existantes : permet d'annuler. */
+  onCancel?: () => void
 }
 
-export default function Onboarding({ onDone }: Props) {
+export default function Onboarding({ initial, onDone, onCancel }: Props) {
   const [etape, setEtape] = useState(0)
-  const [usage, setUsage] = useState<OnboardingAnswers['usage']>('mixte')
-  const [categories, setCategories] = useState<string[]>([
-    'Factures & reçus',
-    'Banque & finance',
-    'Shopping & livraisons',
-    'Voyages & réservations',
-    'Newsletters',
-    'Sécurité & comptes'
-  ])
-  const [notes, setNotes] = useState('')
-  const [granularity, setGranularity] = useState<'large' | 'fin'>('fin')
-  const [horizon, setHorizon] = useState(12)
-  const [archiveNews, setArchiveNews] = useState(true)
-
-  const basculerCategorie = (c: string) => {
-    setCategories((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
-  }
+  const [usage, setUsage] = useState<OnboardingAnswers['usage']>(initial?.usage ?? 'mixte')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [granularity, setGranularity] = useState<'large' | 'fin'>(initial?.granularity ?? 'fin')
+  const [horizon, setHorizon] = useState(initial?.horizonMonths ?? 12)
+  const [archiveNews, setArchiveNews] = useState(initial?.archiveReadNewsletters ?? true)
 
   const terminer = () => {
     onDone({
       usage,
-      categories,
+      // L'IA choisit elle-même les catégories : plus de sélection manuelle.
+      categories: [],
       granularity,
       horizonMonths: horizon,
       archiveReadNewsletters: archiveNews,
@@ -56,7 +49,7 @@ export default function Onboarding({ onDone }: Props) {
               [
                 ['perso', 'Personnel', 'Achats, factures, voyages, newsletters…'],
                 ['pro', 'Professionnel', 'Clients, projets, outils de travail…'],
-                ['mixte', 'Les deux', 'Un peu de tout, Rangemail équilibre.']
+                ['mixte', 'Les deux', 'Un peu de tout, Médor équilibre.']
               ] as const
             ).map(([val, titre, detail]) => (
               <button
@@ -74,27 +67,24 @@ export default function Onboarding({ onDone }: Props) {
 
       {etape === 1 && (
         <>
-          <h1>Quelles catégories vous parlent&nbsp;?</h1>
+          <h1>Des consignes particulières&nbsp;?</h1>
           <p className="sous-titre">
-            Elles serviront de premier niveau de rangement. Vous pourrez toujours ajuster ensuite.
+            L’IA invente elle-même les catégories adaptées à votre boîte. Ici, vous pouvez lui
+            préciser vos règles à vous — elle les suivra en priorité. Sinon, passez simplement à
+            la suite.
           </p>
-          <div className="jetons">
-            {DEFAULT_CATEGORIES.map((c) => (
-              <button
-                key={c}
-                className={`jeton ${categories.includes(c) ? 'choisi' : ''}`}
-                onClick={() => basculerCategorie(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
           <label className="champ">
-            <span>Autre chose à savoir sur votre boîte&nbsp;? (facultatif)</span>
+            <span>Expliquez avec vos mots comment ranger (facultatif, mais très efficace)</span>
             <textarea
+              rows={5}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ex. : je suis développeur freelance, je veux garder à part tout ce qui concerne mes clients…"
+              placeholder={
+                'L’IA suit ces consignes en priorité. Par exemple :\n' +
+                '« Je suis développeur freelance : un libellé par client (Acme, Globex…). »\n' +
+                '« Tout ce qui touche à l’école des enfants dans un dossier École. »\n' +
+                '« Les mails de ma copropriété dans Immobilier/Copro. »'
+              }
             />
           </label>
         </>
@@ -148,8 +138,8 @@ export default function Onboarding({ onDone }: Props) {
         <>
           <h1>Et les newsletters lues&nbsp;?</h1>
           <p className="sous-titre">
-            Rangemail n’archive que les mails déjà lus — les non-lus restent bien visibles dans la
-            boîte de réception.
+            À chaque analyse, vous choisirez la portée : mails lus, non lus, ou toute la boîte.
+            Cette question règle juste le sort des newsletters dans le plan proposé.
           </p>
           <div className="choix-cartes deux">
             <button
@@ -164,11 +154,11 @@ export default function Onboarding({ onDone }: Props) {
               onClick={() => setArchiveNews(false)}
             >
               <span className="titre">Les laisser en place</span>
-              <span className="detail">Rangemail les liste, mais n’y touche pas.</span>
+              <span className="detail">Médor les liste, mais n’y touche pas.</span>
             </button>
           </div>
           <div className="info" style={{ marginTop: 22 }}>
-            Prochaine étape : Rangemail analyse la boîte et vous montre son plan de rangement.
+            Prochaine étape : Médor analyse la boîte et vous montre son plan de rangement.
             Rien n’est déplacé sans votre validation.
           </div>
         </>
@@ -179,6 +169,10 @@ export default function Onboarding({ onDone }: Props) {
           <button className="secondaire" onClick={() => setEtape(etape - 1)}>
             Retour
           </button>
+        ) : onCancel ? (
+          <button className="secondaire" onClick={onCancel}>
+            Annuler
+          </button>
         ) : (
           <span />
         )}
@@ -188,7 +182,7 @@ export default function Onboarding({ onDone }: Props) {
           </button>
         ) : (
           <button className="principal large" onClick={terminer}>
-            Voir mon plan de rangement
+            {initial ? 'Enregistrer mes préférences' : 'Voir mon plan de rangement'}
           </button>
         )}
       </div>

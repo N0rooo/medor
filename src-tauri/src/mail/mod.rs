@@ -1,7 +1,9 @@
 pub mod ai;
 pub mod classify;
+pub mod gmail;
 pub mod organizer;
 pub mod scanner;
+pub mod utf7;
 
 use crate::oauth;
 use crate::store;

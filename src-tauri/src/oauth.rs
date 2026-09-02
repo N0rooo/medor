@@ -6,6 +6,8 @@ use rand::Rng;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
@@ -106,10 +108,15 @@ fn parse_query(url: &str) -> HashMap<String, String> {
 
 // --- Google : flux "boucle locale" avec PKCE. ---
 
-pub fn google_oauth(app: &AppHandle, client_id: &str, client_secret: &str) -> Result<TokenSet, String> {
+pub fn google_oauth(
+    app: &AppHandle,
+    client_id: &str,
+    client_secret: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<TokenSet, String> {
     if client_id.trim().is_empty() || client_secret.trim().is_empty() {
         return Err(
-            "Cette version de Rangemail n'embarque pas encore d'identifiant OAuth Google. \
+            "Cette version de Médor n'embarque pas encore d'identifiant OAuth Google. \
              Le mainteneur de l'app peut en intégrer un (voir README), ou vous pouvez en \
              renseigner un dans Réglages → Réglages avancés."
                 .into(),
@@ -145,6 +152,9 @@ pub fn google_oauth(app: &AppHandle, client_id: &str, client_secret: &str) -> Re
 
     let deadline = Instant::now() + Duration::from_secs(300);
     let code = loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Connexion annulée.".into());
+        }
         if Instant::now() > deadline {
             return Err("Délai dépassé : la connexion Google n'a pas abouti en 5 minutes.".into());
         }
@@ -152,9 +162,9 @@ pub fn google_oauth(app: &AppHandle, client_id: &str, client_secret: &str) -> Re
             Ok(Some(request)) => {
                 let params = parse_query(request.url());
                 let html = if params.contains_key("code") {
-                    "<html><body style='font-family:sans-serif;padding:3em;text-align:center'><h2>Connexion réussie</h2><p>Vous pouvez fermer cet onglet et retourner dans Rangemail.</p></body></html>"
+                    "<html><body style='font-family:sans-serif;padding:3em;text-align:center'><h2>Connexion réussie</h2><p>Vous pouvez fermer cet onglet et retourner dans Médor.</p></body></html>"
                 } else {
-                    "<html><body style='font-family:sans-serif;padding:3em;text-align:center'><h2>Connexion refusée</h2><p>Retournez dans Rangemail pour réessayer.</p></body></html>"
+                    "<html><body style='font-family:sans-serif;padding:3em;text-align:center'><h2>Connexion refusée</h2><p>Retournez dans Médor pour réessayer.</p></body></html>"
                 };
                 let header =
                     tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
@@ -215,7 +225,7 @@ pub fn refresh_google(
 pub fn ms_device_start(client_id: &str) -> Result<DeviceCodeStart, String> {
     if client_id.trim().is_empty() {
         return Err(
-            "Cette version de Rangemail n'embarque pas encore d'identifiant OAuth Microsoft. \
+            "Cette version de Médor n'embarque pas encore d'identifiant OAuth Microsoft. \
              Le mainteneur de l'app peut en intégrer un (voir README), ou vous pouvez en \
              renseigner un dans Réglages → Réglages avancés."
                 .into(),
@@ -264,14 +274,24 @@ pub fn ms_device_start(client_id: &str) -> Result<DeviceCodeStart, String> {
     })
 }
 
-pub fn ms_device_poll(client_id: &str, start: &DeviceCodeStart) -> Result<TokenSet, String> {
+pub fn ms_device_poll(
+    client_id: &str,
+    start: &DeviceCodeStart,
+    cancel: Arc<AtomicBool>,
+) -> Result<TokenSet, String> {
     let client = http()?;
     let mut interval = start.interval.max(1);
     loop {
         if Instant::now() > start.expires_at {
             return Err("Le code de connexion Microsoft a expiré. Relancez la connexion.".into());
         }
-        std::thread::sleep(Duration::from_secs(interval));
+        // Sommeil par pas d'une seconde pour réagir vite à une annulation.
+        for _ in 0..interval {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Connexion annulée.".into());
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
         let resp: Value = client
             .post(MS_TOKEN_URL)
             .form(&[

@@ -1,10 +1,12 @@
+use crate::mail::ai::AiAuth;
 use crate::mail::classify::{build_groups, GroupUids};
 use crate::mail::{ai, organizer, scanner};
 use crate::oauth::{self, DeviceCodeStart, TokenSet};
 use crate::store;
 use crate::types::*;
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -22,6 +24,51 @@ pub struct PendingDevice {
 pub struct AppState {
     pub scans: Mutex<HashMap<String, ScanCache>>,
     pub pending_device: Mutex<Option<PendingDevice>>,
+    /// Drapeau d'annulation du flux OAuth en cours (Google ou Microsoft).
+    pub oauth_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// Comptes sur lesquels une opération (analyse, rangement) est en cours —
+    /// évite qu'un rangement automatique chevauche une action manuelle.
+    pub busy: Mutex<HashSet<String>>,
+}
+
+/// Verrou d'occupation d'un compte, relâché automatiquement en fin de portée.
+struct BusyGuard {
+    app: AppHandle,
+    id: String,
+}
+
+impl BusyGuard {
+    fn try_new(app: &AppHandle, id: &str) -> Option<Self> {
+        let state = app.state::<AppState>();
+        let mut busy = state.busy.lock().unwrap();
+        if busy.contains(id) {
+            return None;
+        }
+        busy.insert(id.to_string());
+        Some(Self {
+            app: app.clone(),
+            id: id.to_string(),
+        })
+    }
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        let state = self.app.state::<AppState>();
+        state.busy.lock().unwrap().remove(&self.id);
+    }
+}
+
+/// Prépare un nouveau drapeau d'annulation, en annulant l'éventuel flux précédent.
+fn new_cancel_flag(app: &AppHandle) -> Arc<AtomicBool> {
+    let state = app.state::<AppState>();
+    let mut guard = state.oauth_cancel.lock().unwrap();
+    if let Some(old) = guard.as_ref() {
+        old.store(true, Ordering::Relaxed);
+    }
+    let flag = Arc::new(AtomicBool::new(false));
+    *guard = Some(flag.clone());
+    flag
 }
 
 fn preset_for(provider: &str) -> Option<ImapEndpoint> {
@@ -61,6 +108,16 @@ pub async fn get_state(app: AppHandle) -> Result<AppBootstrap, String> {
         has_anthropic_key: has_key,
         google_oauth_ready: !google_id.is_empty(),
         ms_oauth_ready: !ms_id.is_empty(),
+        claude_cli_available: ai::find_claude_cli().is_some(),
+        last_auto: if cfg.last_auto_result.is_empty() {
+            None
+        } else {
+            Some(cfg.last_auto_result)
+        },
+        autostart_enabled: {
+            use tauri_plugin_autostart::ManagerExt;
+            app.autolaunch().is_enabled().unwrap_or(false)
+        },
     })
 }
 
@@ -87,11 +144,42 @@ pub async fn set_settings(app: AppHandle, patch: SettingsPatch) -> Result<AppBoo
     if let Some(v) = patch.ms_client_id {
         cfg.settings.ms_client_id = v.trim().to_string();
     }
+    if let Some(v) = patch.auto_enabled {
+        cfg.settings.auto_enabled = v;
+    }
+    if let Some(v) = patch.auto_frequency {
+        if ["1h", "6h", "jour"].contains(&v.as_str()) {
+            cfg.settings.auto_frequency = v;
+        }
+    }
+    if let Some(v) = patch.auto_hour {
+        cfg.settings.auto_hour = v.min(23);
+    }
+    if let Some(v) = patch.auto_scope {
+        if ["tous", "lus", "nonlus"].contains(&v.as_str()) {
+            cfg.settings.auto_scope = v;
+        }
+    }
+    if let Some(v) = patch.auto_junk {
+        cfg.settings.auto_junk = v;
+    }
     store::save_config(&app, &cfg);
     if let Some(key) = patch.anthropic_key {
         store::set_anthropic_key(&app, &key);
     }
     get_state(app).await
+}
+
+/// Active ou désactive le lancement de Médor à l'ouverture de session.
+#[tauri::command]
+pub async fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if enabled {
+        launcher.enable().map_err(|e| e.to_string())
+    } else {
+        launcher.disable().map_err(|e| e.to_string())
+    }
 }
 
 // ---------------------------------------------------------------- Comptes
@@ -215,7 +303,8 @@ pub async fn google_connect(app: AppHandle) -> Result<AccountConfig, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let cfg = store::load_config(&app);
         let (client_id, client_secret) = oauth::resolved_google_ids(&cfg.settings);
-        let tokens = oauth::google_oauth(&app, &client_id, &client_secret)?;
+        let cancel = new_cancel_flag(&app);
+        let tokens = oauth::google_oauth(&app, &client_id, &client_secret, cancel)?;
         account_from_tokens(&app, "gmail", "oauth-google", tokens)
     })
     .await
@@ -256,23 +345,37 @@ pub async fn ms_device_finish(app: AppHandle) -> Result<AccountConfig, String> {
             guard.take()
         }
         .ok_or("Aucune connexion Microsoft en cours. Relancez la connexion.")?;
-        let tokens = oauth::ms_device_poll(&pending.client_id, &pending.start)?;
+        let cancel = new_cancel_flag(&app);
+        let tokens = oauth::ms_device_poll(&pending.client_id, &pending.start, cancel)?;
         account_from_tokens(&app, "outlook", "oauth-microsoft", tokens)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// Annule le flux OAuth en cours (Google ou Microsoft) : le bouton de
+/// connexion redevient utilisable immédiatement côté interface.
+#[tauri::command]
+pub async fn oauth_cancel(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(flag) = state.oauth_cancel.lock().unwrap().as_ref() {
+        flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- Scan & plan
 
 #[tauri::command]
-pub async fn scan_account(app: AppHandle, account_id: String) -> Result<Plan, String> {
-    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, account_id))
+pub async fn scan_account(app: AppHandle, account_id: String, scope: String) -> Result<Plan, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, account_id, scope))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
+fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Plan, String> {
+    let _busy = BusyGuard::try_new(&app, &account_id)
+        .ok_or("Une opération est déjà en cours sur ce compte.")?;
     let cfg = store::load_config(&app);
     let account = cfg
         .accounts
@@ -293,9 +396,33 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
     );
 
     let mut session = crate::mail::open_session(&app, &account)?;
+
+    // Libellés déjà présents : l'IA les réutilisera au lieu d'inventer des doublons.
+    let existing_labels: Vec<String> = session
+        .list(Some(""), Some("*"))
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|n| {
+                    let decoded = crate::mail::utf7::decode(n.name());
+                    let lower = decoded.to_lowercase();
+                    if lower == "inbox"
+                        || lower.starts_with("[gmail]")
+                        || lower.starts_with("[google mail]")
+                    {
+                        None
+                    } else {
+                        Some(decoded)
+                    }
+                })
+                .take(120)
+                .collect()
+        })
+        .unwrap_or_default();
+
     let emit_progress = |p: ScanProgress| emit_scan(&app, p);
     let (messages, inbox_total) =
-        scanner::scan_inbox(&mut session, onboarding.horizon_months, &emit_progress)?;
+        scanner::scan_inbox(&mut session, onboarding.horizon_months, &scope, &emit_progress)?;
     let _ = session.logout();
 
     emit_scan(
@@ -307,11 +434,19 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
             note: None,
         },
     );
-    let (mut groups, uids) = build_groups(&messages);
+    let (mut groups, uids) = build_groups(&messages, onboarding.granularity == "fin");
+
+    // Authentification IA : clé API si renseignée, sinon la session Claude Code
+    // de la machine (abonnement Claude), sinon classement heuristique seul.
+    let auth = if let Some(key) = store::get_anthropic_key(&app) {
+        Some(AiAuth::ApiKey(key))
+    } else {
+        ai::find_claude_cli().map(AiAuth::ClaudeCli)
+    };
 
     let mut generated_by = "heuristique".to_string();
     let mut ai_note: Option<String> = None;
-    if let Some(api_key) = store::get_anthropic_key(&app) {
+    if let Some(auth) = auth {
         emit_scan(
             &app,
             ScanProgress {
@@ -332,7 +467,14 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
                 },
             );
         };
-        match ai::ai_label_senders(&api_key, &cfg.settings.model, &onboarding, &groups, &emit_ai) {
+        match ai::ai_label_senders(
+            &auth,
+            &cfg.settings.model,
+            &onboarding,
+            &existing_labels,
+            &groups,
+            &emit_ai,
+        ) {
             Ok(labels) => {
                 for group in groups.iter_mut() {
                     if let Some(label) = labels.get(&group.key) {
@@ -349,7 +491,7 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
         }
     } else {
         ai_note = Some(
-            "Classement heuristique : ajoutez une clé API Claude dans les réglages pour un classement plus fin."
+            "Classement heuristique : installez Claude Code ou ajoutez une clé API Claude dans les réglages pour un classement sur mesure."
                 .into(),
         );
     }
@@ -361,6 +503,8 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
         groups,
         generated_by,
         ai_note,
+        scope,
+        existing_labels,
     );
 
     let state = app.state::<AppState>();
@@ -374,6 +518,7 @@ fn scan_blocking(app: AppHandle, account_id: String) -> Result<Plan, String> {
     Ok(plan)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_plan(
     account_id: &str,
     scanned: u32,
@@ -381,6 +526,8 @@ fn build_plan(
     senders: Vec<SenderGroup>,
     generated_by: String,
     ai_note: Option<String>,
+    scope: String,
+    existing_labels: Vec<String>,
 ) -> Plan {
     let mut label_map: HashMap<String, PlanLabel> = HashMap::new();
     let mut newsletters: Vec<String> = Vec::new();
@@ -420,6 +567,8 @@ fn build_plan(
         spam_suspects: spam,
         generated_by,
         ai_note,
+        scope,
+        existing_labels,
     }
 }
 
@@ -429,7 +578,19 @@ pub async fn apply_plan(
     account_id: String,
     selection: ApplySelection,
 ) -> Result<ApplyResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || apply_blocking(app, account_id, selection))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn apply_blocking(
+    app: AppHandle,
+    account_id: String,
+    selection: ApplySelection,
+) -> Result<ApplyResult, String> {
+    let _busy = BusyGuard::try_new(&app, &account_id)
+        .ok_or("Une opération est déjà en cours sur ce compte.")?;
+    {
         let cfg = store::load_config(&app);
         let account = cfg
             .accounts
@@ -451,16 +612,222 @@ pub async fn apply_plan(
         let emit = |p: ApplyProgress| {
             let _ = app.emit("apply-progress", p);
         };
-        let result = organizer::apply(&mut session, &uids, &selection, &emit)?;
+        let mut result = organizer::apply(&mut session, &uids, &selection, &emit)?;
         let _ = session.logout();
 
+        // Couleurs des libellés : possible uniquement via l'API Gmail (OAuth).
+        if !selection.label_colors.is_empty() {
+            if account.provider == "gmail" && account.auth_kind == "oauth-google" {
+                match oauth::ensure_access_token(&app, &account) {
+                    Ok(token) => {
+                        let errs = crate::mail::gmail::apply_label_colors(&token, &selection.label_colors);
+                        result.errors.extend(errs);
+                    }
+                    Err(e) => result
+                        .errors
+                        .push(format!("Couleurs non appliquées (jeton indisponible) : {e}")),
+                }
+            }
+        }
+
+        // Mémoriser les libellés touchés (parents compris) pour pouvoir les
+        // supprimer plus tard depuis l'app.
+        let mut cfg = store::load_config(&app);
+        let entry = cfg.created_labels.entry(account_id.clone()).or_default();
+        for label in &selection.labels {
+            let mut prefix = String::new();
+            for part in label.name.split('/') {
+                if !prefix.is_empty() {
+                    prefix.push('/');
+                }
+                prefix.push_str(part);
+                if !entry.contains(&prefix) {
+                    entry.push(prefix.clone());
+                }
+            }
+        }
+        store::save_config(&app, &cfg);
+
         // Le plan ne correspond plus à l'état de la boîte : on invalide le cache.
+        let state = app.state::<AppState>();
+        state.scans.lock().unwrap().remove(&account_id);
+        Ok(result)
+    }
+}
+
+/// Supprime des libellés côté serveur : ceux créés par Médor
+/// (`only_rangemail = true`), ou tous les dossiers non-système du compte.
+#[tauri::command]
+pub async fn delete_labels(
+    app: AppHandle,
+    account_id: String,
+    only_rangemail: bool,
+) -> Result<DeleteLabelsResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+
+        let targets = if only_rangemail {
+            let tracked = cfg
+                .created_labels
+                .get(&account_id)
+                .cloned()
+                .unwrap_or_default();
+            if tracked.is_empty() {
+                return Err(
+                    "Médor n'a pas (encore) de liste de libellés créés pour ce compte. \
+                     Utilisez « Supprimer TOUS les libellés », ou refaites un rangement d'abord."
+                        .into(),
+                );
+            }
+            Some(tracked)
+        } else {
+            None
+        };
+
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let result = organizer::delete_labels(&mut session, targets)?;
+        let _ = session.logout();
+
+        if only_rangemail {
+            let mut cfg = store::load_config(&app);
+            cfg.created_labels.remove(&account_id);
+            store::save_config(&app, &cfg);
+        }
+
+        // Les libellés n'existent plus : le plan en cache est caduc.
         let state = app.state::<AppState>();
         state.scans.lock().unwrap().remove(&account_id);
         Ok(result)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ------------------------------------------------------- Rangement automatique
+
+/// Boucle de fond : vérifie chaque minute si un rangement automatique est dû,
+/// puis analyse et range chaque compte. L'app doit rester ouverte.
+pub fn auto_sort_loop(app: AppHandle) {
+    loop {
+        std::thread::sleep(Duration::from_secs(60));
+        let cfg = store::load_config(&app);
+        if !cfg.settings.auto_enabled || cfg.accounts.is_empty() {
+            continue;
+        }
+        if !auto_due(&cfg.settings, cfg.last_auto_run) {
+            continue;
+        }
+
+        let mut archived = 0u32;
+        let mut junked = 0u32;
+        let mut erreurs: Vec<String> = Vec::new();
+        for account in cfg.accounts.clone() {
+            match auto_sort_account(&app, &account.id, &cfg.settings.auto_scope, cfg.settings.auto_junk)
+            {
+                Ok(res) => {
+                    archived += res.archived;
+                    junked += res.junked;
+                    if let Some(err) = res.errors.first() {
+                        erreurs.push(err.clone());
+                    }
+                }
+                Err(e) => erreurs.push(format!("{} : {e}", account.email)),
+            }
+        }
+
+        let stamp = chrono::Local::now().format("%d/%m à %H:%M");
+        let mut resume = format!("{stamp} — {archived} mails rangés");
+        if junked > 0 {
+            resume.push_str(&format!(", {junked} vers les indésirables"));
+        }
+        if !erreurs.is_empty() {
+            resume.push_str(&format!(" · {} erreur(s) : {}", erreurs.len(), erreurs[0]));
+        }
+
+        let mut cfg2 = store::load_config(&app);
+        cfg2.last_auto_run = chrono::Utc::now().timestamp();
+        cfg2.last_auto_result = resume.clone();
+        store::save_config(&app, &cfg2);
+        let _ = app.emit("auto-sort-done", resume.clone());
+
+        if archived + junked > 0 {
+            use tauri_plugin_notification::NotificationExt;
+            let _ = app
+                .notification()
+                .builder()
+                .title("Médor 🐶")
+                .body(&resume)
+                .show();
+        }
+    }
+}
+
+fn auto_due(settings: &Settings, last_run: i64) -> bool {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    match settings.auto_frequency.as_str() {
+        "1h" => now.timestamp() - last_run >= 3590,
+        "6h" => now.timestamp() - last_run >= 6 * 3600 - 10,
+        _ => {
+            // Quotidien : à l'heure choisie, une seule fois par jour.
+            if now.hour() != settings.auto_hour as u32 {
+                return false;
+            }
+            match chrono::DateTime::from_timestamp(last_run, 0) {
+                Some(d) => d.with_timezone(&chrono::Local).date_naive() != now.date_naive(),
+                None => true,
+            }
+        }
+    }
+}
+
+/// Analyse puis range un compte sans intervention : tous les libellés proposés
+/// sauf « À trier », et les indésirables si l'option est activée.
+fn auto_sort_account(
+    app: &AppHandle,
+    account_id: &str,
+    scope: &str,
+    junk: bool,
+) -> Result<ApplyResult, String> {
+    let plan = scan_blocking(app.clone(), account_id.to_string(), scope.to_string())?;
+    if plan.senders.is_empty() {
+        return Ok(ApplyResult::default());
+    }
+    let junk_keys: Vec<String> = if junk { plan.spam_suspects.clone() } else { Vec::new() };
+    let junk_set: HashSet<&String> = junk_keys.iter().collect();
+    let labels: Vec<ApplySelectionLabel> = plan
+        .labels
+        .iter()
+        .filter(|l| l.name != "À trier")
+        .map(|l| ApplySelectionLabel {
+            name: l.name.clone(),
+            sender_keys: l
+                .sender_keys
+                .iter()
+                .filter(|k| !junk_set.contains(k))
+                .cloned()
+                .collect(),
+        })
+        .filter(|l| !l.sender_keys.is_empty())
+        .collect();
+    if labels.is_empty() && junk_keys.is_empty() {
+        return Ok(ApplyResult::default());
+    }
+    apply_blocking(
+        app.clone(),
+        account_id.to_string(),
+        ApplySelection {
+            labels,
+            junk_sender_keys: junk_keys,
+            label_colors: HashMap::new(),
+        },
+    )
 }
 
 // ---------------------------------------------------------------- Désabonnement

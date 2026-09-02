@@ -47,10 +47,10 @@ export default function Accueil({ boot, onAccountAdded, onOpenSettings }: Props)
     <div className="colonne etroite">
       {premiere && (
         <div className="heros">
-          <div className="timbre">R</div>
+          <div className="timbre">M</div>
           <h1>Rangez votre boîte mail</h1>
           <p className="sous-titre">
-            Connectez votre boîte, répondez à quelques questions, et Rangemail crée des libellés
+            Connectez votre boîte, répondez à quelques questions, et Médor crée des libellés
             sur mesure, archive les mails déjà lus, liste vos newsletters et vous aide à vous
             désabonner. Rien n’est supprimé, tout reste retrouvable.
           </p>
@@ -151,6 +151,16 @@ function PanneauConnexion({
     }
   }
 
+  const estAnnulation = (e: unknown) => String(e).includes('annulée')
+
+  const annuler = async () => {
+    try {
+      await api.oauthCancel()
+    } catch {
+      // rien à faire : au pire, le flux expirera tout seul
+    }
+  }
+
   const connecterGoogle = async () => {
     setOccupe(true)
     setErreur(null)
@@ -158,7 +168,7 @@ function PanneauConnexion({
       const compte = await api.googleConnect()
       onAccountAdded(compte)
     } catch (e) {
-      setErreur(String(e))
+      if (!estAnnulation(e)) setErreur(String(e))
     } finally {
       setOccupe(false)
     }
@@ -174,7 +184,7 @@ function PanneauConnexion({
       const compte = await api.msDeviceFinish()
       onAccountAdded(compte)
     } catch (e) {
-      setErreur(String(e))
+      if (!estAnnulation(e)) setErreur(String(e))
       setCodeMs(null)
     } finally {
       setOccupe(false)
@@ -193,15 +203,22 @@ function PanneauConnexion({
       {provider === 'gmail' && (
         <>
           <div style={{ margin: '16px 0' }}>
-            <button
-              className="principal large"
-              onClick={connecterGoogle}
-              disabled={occupe || !boot.googleOauthReady}
-            >
-              {occupe ? 'Connexion en cours…' : 'Se connecter avec Google'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                className="principal large"
+                onClick={connecterGoogle}
+                disabled={occupe || !boot.googleOauthReady}
+              >
+                {occupe ? 'Connexion en cours…' : 'Se connecter avec Google'}
+              </button>
+              {occupe && (
+                <button className="secondaire" onClick={annuler}>
+                  Annuler
+                </button>
+              )}
+            </div>
             <p className="aide" style={{ marginTop: 8 }}>
-              Votre navigateur s’ouvre, vous autorisez Rangemail, c’est tout. Aucune clé à saisir.
+              Votre navigateur s’ouvre, vous autorisez Médor, c’est tout. Aucune clé à saisir.
             </p>
             {!boot.googleOauthReady && (
               <div className="info">
@@ -260,6 +277,9 @@ function PanneauConnexion({
               </p>
               <div className="code-appareil">{codeMs.userCode}</div>
               <p className="aide">En attente de la validation dans votre navigateur…</p>
+              <button className="secondaire" onClick={annuler} style={{ marginTop: 8 }}>
+                Annuler
+              </button>
             </div>
           ) : (
             <div style={{ margin: '16px 0' }}>
@@ -271,7 +291,7 @@ function PanneauConnexion({
                 {occupe ? 'Connexion en cours…' : 'Se connecter avec Microsoft'}
               </button>
               <p className="aide" style={{ marginTop: 8 }}>
-                Un code s’affichera ici, à saisir dans votre navigateur pour autoriser Rangemail.
+                Un code s’affichera ici, à saisir dans votre navigateur pour autoriser Médor.
                 Aucune clé à saisir.
               </p>
             </div>

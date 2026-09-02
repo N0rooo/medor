@@ -48,8 +48,8 @@ export default function App() {
     <div className="app">
       <div className="liseret" />
       <header className="entete" data-tauri-drag-region>
-        <span className="marque">Rangemail</span>
-        <span className="devise">Votre boîte mail, rangée toute seule</span>
+        <span className="marque">Médor</span>
+        <span className="devise">Le chien qui range votre boîte mail</span>
         {navVisible && (
           <nav>
             <button className={vue === 'tableau' ? 'actif' : ''} onClick={() => setVue('tableau')}>
@@ -70,6 +70,8 @@ export default function App() {
         )}
         {vue === 'onboarding' && (
           <Onboarding
+            initial={boot.onboarding}
+            onCancel={boot.onboarding ? () => setVue('tableau') : undefined}
             onDone={async (answers) => {
               await api.setOnboarding(answers)
               await rafraichir()
@@ -83,9 +85,12 @@ export default function App() {
             accountId={compteId}
             onSelectAccount={setCompteId}
             onAddAccount={() => setVue('accueil')}
+            onEditOnboarding={() => setVue('onboarding')}
           />
         )}
-        {vue === 'reglages' && <Reglages boot={boot} onChanged={rafraichir} />}
+        {vue === 'reglages' && (
+          <Reglages boot={boot} onChanged={rafraichir} onEditOnboarding={() => setVue('onboarding')} />
+        )}
       </main>
     </div>
   )

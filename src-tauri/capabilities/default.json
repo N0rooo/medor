@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capacités de la fenêtre principale de Rangemail",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "permissions": ["core:default", "opener:default", "notification:default"]
 }

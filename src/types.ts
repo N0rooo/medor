@@ -31,6 +31,12 @@ export interface Settings {
   googleClientId: string
   googleClientSecret: string
   msClientId: string
+  autoEnabled: boolean
+  /** 1h | 6h | jour */
+  autoFrequency: string
+  autoHour: number
+  autoScope: string
+  autoJunk: boolean
 }
 
 export interface AppBootstrap {
@@ -42,6 +48,12 @@ export interface AppBootstrap {
   googleOauthReady: boolean
   /** Connexion Microsoft disponible. */
   msOauthReady: boolean
+  /** Claude Code détecté : classement IA possible via l'abonnement Claude, sans clé API. */
+  claudeCliAvailable: boolean
+  /** Résumé du dernier rangement automatique, s'il y en a eu un. */
+  lastAuto?: string | null
+  /** Médor se lance à l'ouverture de session. */
+  autostartEnabled: boolean
 }
 
 export interface SenderGroup {
@@ -79,6 +91,9 @@ export interface Plan {
   spamSuspects: string[]
   generatedBy: 'ia' | 'heuristique'
   aiNote?: string | null
+  scope: ScanScope
+  /** Libellés déjà présents sur le serveur (pour afficher créé vs complété). */
+  existingLabels: string[]
 }
 
 export interface ScanProgress {
@@ -87,6 +102,8 @@ export interface ScanProgress {
   total: number
   note?: string | null
 }
+
+export type ScanScope = 'tous' | 'lus' | 'nonlus'
 
 export interface ApplySelection {
   labels: { name: string; senderKeys: string[] }[]
@@ -112,6 +129,11 @@ export interface MsDeviceCodeInfo {
   message: string
 }
 
+export interface DeleteLabelsResult {
+  deleted: number
+  errors: string[]
+}
+
 export interface UnsubscribeResult {
   ok: boolean
   method: 'one-click' | 'lien' | 'mailto' | 'aucun'
@@ -132,6 +154,11 @@ export interface SettingsPatch {
   googleClientSecret?: string
   msClientId?: string
   anthropicKey?: string
+  autoEnabled?: boolean
+  autoFrequency?: string
+  autoHour?: number
+  autoScope?: string
+  autoJunk?: boolean
 }
 
 export const DEFAULT_CATEGORIES = [

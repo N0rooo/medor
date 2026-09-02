@@ -3,9 +3,19 @@ use base64::Engine;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
-const KEYRING_SERVICE: &str = "rangemail";
+const KEYRING_SERVICE: &str = "medor";
+/// Ancien nom de service : les secrets existants y sont migrés à la volée.
+const KEYRING_SERVICE_LEGACY: &str = "rangemail";
+
+/// Cache mémoire des secrets : une seule lecture du Trousseau par lancement,
+/// pour éviter les demandes de mot de passe macOS à répétition.
+fn cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn data_dir(app: &AppHandle) -> PathBuf {
     let dir = app
@@ -51,13 +61,27 @@ fn keyring_set(name: &str, value: &str) -> Result<(), String> {
 }
 
 fn keyring_get(name: &str) -> Option<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, name).ok()?;
-    entry.get_password().ok()
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, name) {
+        if let Ok(value) = entry.get_password() {
+            return Some(value);
+        }
+    }
+    // Migration depuis l'ancien service « rangemail ».
+    if let Ok(old) = keyring::Entry::new(KEYRING_SERVICE_LEGACY, name) {
+        if let Ok(value) = old.get_password() {
+            let _ = keyring_set(name, &value);
+            let _ = old.delete_credential();
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn keyring_delete(name: &str) {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, name) {
-        let _ = entry.delete_credential();
+    for service in [KEYRING_SERVICE, KEYRING_SERVICE_LEGACY] {
+        if let Ok(entry) = keyring::Entry::new(service, name) {
+            let _ = entry.delete_credential();
+        }
     }
 }
 
@@ -85,18 +109,29 @@ fn set_raw_secret(app: &AppHandle, name: &str, value: &str) {
         );
         fallback_save(app, &map);
     }
+    cache()
+        .lock()
+        .unwrap()
+        .insert(name.to_string(), Some(value.to_string()));
 }
 
 fn get_raw_secret(app: &AppHandle, name: &str) -> Option<String> {
-    if let Some(v) = keyring_get(name) {
-        return Some(v);
+    if let Some(en_cache) = cache().lock().unwrap().get(name) {
+        return en_cache.clone();
     }
-    let map = fallback_load(app);
-    let encoded = map.get(name)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .ok()?;
-    String::from_utf8(bytes).ok()
+    let valeur = keyring_get(name).or_else(|| {
+        let map = fallback_load(app);
+        let encoded = map.get(name)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .ok()?;
+        String::from_utf8(bytes).ok()
+    });
+    cache()
+        .lock()
+        .unwrap()
+        .insert(name.to_string(), valeur.clone());
+    valeur
 }
 
 fn delete_raw_secret(app: &AppHandle, name: &str) {
@@ -105,6 +140,7 @@ fn delete_raw_secret(app: &AppHandle, name: &str) {
     if map.remove(name).is_some() {
         fallback_save(app, &map);
     }
+    cache().lock().unwrap().insert(name.to_string(), None);
 }
 
 pub fn set_secret(app: &AppHandle, account_id: &str, secret: &AccountSecret) {

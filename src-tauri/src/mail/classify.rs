@@ -111,7 +111,13 @@ const SPAM_SUBJECT_HINTS: &[&str] = &[
     "jackpot", "prêt immédiat", "richesse",
 ];
 
-pub fn build_groups(messages: &[ScannedMessage]) -> (Vec<SenderGroup>, HashMap<String, GroupUids>) {
+/// Volume minimal d'un expéditeur pour mériter son propre sous-dossier.
+const MIN_POUR_SOUS_LIBELLE: u32 = 3;
+
+pub fn build_groups(
+    messages: &[ScannedMessage],
+    sous_libelles: bool,
+) -> (Vec<SenderGroup>, HashMap<String, GroupUids>) {
     let mut order: Vec<String> = Vec::new();
     let mut groups: HashMap<String, SenderGroup> = HashMap::new();
     let mut uids: HashMap<String, GroupUids> = HashMap::new();
@@ -195,7 +201,7 @@ pub fn build_groups(messages: &[ScannedMessage]) -> (Vec<SenderGroup>, HashMap<S
         if group.name.is_empty() {
             group.name = group.address.split('@').next().unwrap_or("").to_string();
         }
-        group.label = heuristic_label(&group);
+        group.label = heuristic_label(&group, sous_libelles);
         group.spam_suspect = spam_suspect(&group);
         result.push(group);
     }
@@ -218,13 +224,46 @@ fn parse_unsubscribe(raw: &str) -> (Option<String>, Option<String>) {
     (http, mailto)
 }
 
-pub fn heuristic_label(group: &SenderGroup) -> String {
+/// Nom de « marque » lisible tiré du domaine, pour nommer un sous-dossier
+/// (ex. `mail.amazon.fr` → « Amazon », `impots.gouv.fr` → « Impots »).
+fn brand_from_domain(domain: &str) -> Option<String> {
+    let parts: Vec<&str> = domain.split('.').filter(|p| !p.is_empty()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    // Suffixes intermédiaires sans valeur de marque (impots.gouv.fr, foo.co.uk…).
+    const SUFFIXES: [&str; 5] = ["gouv", "co", "com", "asso", "org"];
+    let mut idx = parts.len() - 2;
+    if SUFFIXES.contains(&parts[idx]) && idx > 0 {
+        idx -= 1;
+    }
+    let raw = parts[idx];
+    if raw.len() < 2 {
+        return None;
+    }
+    let mut chars = raw.chars();
+    let first = chars.next()?.to_uppercase().to_string();
+    Some(format!("{first}{}", chars.as_str()))
+}
+
+/// Ajoute un sous-dossier « marque » au libellé si l'expéditeur a assez de volume.
+fn with_brand(label: &str, group: &SenderGroup, sous_libelles: bool) -> String {
+    if !sous_libelles || group.total < MIN_POUR_SOUS_LIBELLE {
+        return label.to_string();
+    }
+    match brand_from_domain(&group.domain) {
+        Some(brand) => format!("{label}/{brand}"),
+        None => label.to_string(),
+    }
+}
+
+pub fn heuristic_label(group: &SenderGroup, sous_libelles: bool) -> String {
     let domain = group.domain.to_lowercase();
     let address = group.address.to_lowercase();
 
     for (patterns, label) in DOMAIN_RULES {
         if patterns.iter().any(|p| domain.contains(p)) {
-            return (*label).to_string();
+            return with_brand(label, group, sous_libelles);
         }
     }
 
@@ -244,11 +283,11 @@ pub fn heuristic_label(group: &SenderGroup) -> String {
         }
     }
     if let Some((label, _)) = best {
-        return label.to_string();
+        return with_brand(label, group, sous_libelles);
     }
 
     if group.is_newsletter {
-        return "Newsletters".to_string();
+        return with_brand("Newsletters", group, sous_libelles);
     }
     if address.starts_with("no-reply")
         || address.starts_with("noreply")

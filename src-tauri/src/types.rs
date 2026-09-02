@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +55,16 @@ pub struct Settings {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub ms_client_id: String,
+    /// Rangement automatique planifié (l'app doit rester ouverte).
+    pub auto_enabled: bool,
+    /// 1h | 6h | jour
+    pub auto_frequency: String,
+    /// Heure locale (0-23) pour la fréquence « jour ».
+    pub auto_hour: u8,
+    /// Portée des analyses automatiques : tous | lus | nonlus
+    pub auto_scope: String,
+    /// Déplacer aussi les indésirables détectés lors du rangement automatique.
+    pub auto_junk: bool,
 }
 
 impl Default for Settings {
@@ -63,6 +74,11 @@ impl Default for Settings {
             google_client_id: String::new(),
             google_client_secret: String::new(),
             ms_client_id: String::new(),
+            auto_enabled: false,
+            auto_frequency: "jour".into(),
+            auto_hour: 8,
+            auto_scope: "lus".into(),
+            auto_junk: false,
         }
     }
 }
@@ -73,6 +89,13 @@ pub struct Config {
     pub accounts: Vec<AccountConfig>,
     pub onboarding: Option<OnboardingAnswers>,
     pub settings: Settings,
+    /// Libellés créés par Rangemail, par identifiant de compte — pour pouvoir
+    /// les supprimer depuis l'app.
+    pub created_labels: HashMap<String, Vec<String>>,
+    /// Timestamp (s) du dernier rangement automatique.
+    pub last_auto_run: i64,
+    /// Résumé lisible du dernier rangement automatique.
+    pub last_auto_result: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -137,6 +160,11 @@ pub struct Plan {
     /// ia | heuristique
     pub generated_by: String,
     pub ai_note: Option<String>,
+    /// Portée de l'analyse : tous | lus | nonlus
+    pub scope: String,
+    /// Libellés déjà présents sur le serveur (noms décodés), pour afficher
+    /// dans l'app ce qui sera créé vs simplement complété.
+    pub existing_labels: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -161,6 +189,10 @@ pub struct ApplySelectionLabel {
 pub struct ApplySelection {
     pub labels: Vec<ApplySelectionLabel>,
     pub junk_sender_keys: Vec<String>,
+    /// Couleur choisie par libellé de premier niveau (fond hex de la palette
+    /// Gmail). Appliquée seulement sur les comptes Gmail connectés en OAuth.
+    #[serde(default)]
+    pub label_colors: HashMap<String, String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -177,6 +209,13 @@ pub struct ApplyResult {
     pub archived: u32,
     pub labels_created: u32,
     pub junked: u32,
+    pub errors: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteLabelsResult {
+    pub deleted: u32,
     pub errors: Vec<String>,
 }
 
@@ -209,6 +248,13 @@ pub struct AppBootstrap {
     pub google_oauth_ready: bool,
     /// Idem pour la connexion Microsoft.
     pub ms_oauth_ready: bool,
+    /// Claude Code est installé sur la machine : le classement IA peut passer
+    /// par la session/l'abonnement Claude de l'utilisateur, sans clé API.
+    pub claude_cli_available: bool,
+    /// Résumé du dernier rangement automatique, s'il y en a eu un.
+    pub last_auto: Option<String>,
+    /// Médor se lance-t-il à l'ouverture de session ?
+    pub autostart_enabled: bool,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -220,4 +266,9 @@ pub struct SettingsPatch {
     pub ms_client_id: Option<String>,
     /// Chaîne vide = supprimer la clé.
     pub anthropic_key: Option<String>,
+    pub auto_enabled: Option<bool>,
+    pub auto_frequency: Option<String>,
+    pub auto_hour: Option<u8>,
+    pub auto_scope: Option<String>,
+    pub auto_junk: Option<bool>,
 }
