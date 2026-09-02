@@ -6,30 +6,37 @@
   </defs>
   <g clip-path="url(#rond)">
     <rect x="64" y="64" width="896" height="896" fill="#1d2a3a"/>
-    <!-- liseré par avion en haut -->
-    <g>
-      <rect x="64" y="64" width="896" height="72" fill="#ffffff"/>
-      <g>
-        <rect x="24" y="64" width="56" height="72" fill="#27519f" transform="skewX(-20)"/>
-        <rect x="136" y="64" width="56" height="72" fill="#c34a3e" transform="skewX(-20)"/>
-        <rect x="248" y="64" width="56" height="72" fill="#27519f" transform="skewX(-20)"/>
-        <rect x="360" y="64" width="56" height="72" fill="#c34a3e" transform="skewX(-20)"/>
-        <rect x="472" y="64" width="56" height="72" fill="#27519f" transform="skewX(-20)"/>
-        <rect x="584" y="64" width="56" height="72" fill="#c34a3e" transform="skewX(-20)"/>
-        <rect x="696" y="64" width="56" height="72" fill="#27519f" transform="skewX(-20)"/>
-        <rect x="808" y="64" width="56" height="72" fill="#c34a3e" transform="skewX(-20)"/>
-        <rect x="920" y="64" width="56" height="72" fill="#27519f" transform="skewX(-20)"/>
-        <rect x="1032" y="64" width="56" height="72" fill="#c34a3e" transform="skewX(-20)"/>
-      </g>
+
+    <!-- Médor : tête de chien tenant une enveloppe, en grand -->
+    <g transform="translate(512 500) scale(1.32) translate(-512 -500)">
+    <!-- oreilles tombantes -->
+    <ellipse cx="318" cy="440" rx="92" ry="165" fill="#b97f3f" transform="rotate(18 318 440)"/>
+    <ellipse cx="706" cy="440" rx="92" ry="165" fill="#b97f3f" transform="rotate(-18 706 440)"/>
+    <!-- tête -->
+    <circle cx="512" cy="470" r="235" fill="#e8b06b"/>
+    <!-- tache sur l'œil droit -->
+    <path d="M594 260 a150 150 0 0 1 130 150 a150 150 0 0 1 -30 88 a190 190 0 0 0 -100 -238 z" fill="#d99a4e"/>
+    <!-- museau -->
+    <ellipse cx="512" cy="565" rx="150" ry="115" fill="#f6dcb2"/>
+    <!-- yeux -->
+    <circle cx="428" cy="432" r="28" fill="#1d2a3a"/>
+    <circle cx="596" cy="432" r="28" fill="#1d2a3a"/>
+    <circle cx="437" cy="423" r="9" fill="#ffffff"/>
+    <circle cx="605" cy="423" r="9" fill="#ffffff"/>
+    <!-- sourcils -->
+    <path d="M390 378 q38 -22 76 -10" fill="none" stroke="#b97f3f" stroke-width="14" stroke-linecap="round"/>
+    <path d="M558 368 q38 -12 76 10" fill="none" stroke="#b97f3f" stroke-width="14" stroke-linecap="round"/>
+    <!-- truffe -->
+    <path d="M462 510 h100 a14 14 0 0 1 11 23 l-50 58 a14 14 0 0 1 -22 0 l-50 -58 a14 14 0 0 1 11 -23 z" fill="#2b2018"/>
+    <circle cx="488" cy="524" r="7" fill="#5c4632"/>
+
+    <!-- enveloppe tenue dans la gueule -->
+    <g transform="rotate(-5 512 690)">
+      <rect x="352" y="598" width="320" height="196" rx="20" fill="#f1f2ef" stroke="#1d2a3a" stroke-width="10"/>
+      <path d="M362 620 L512 724 L662 620" fill="none" stroke="#1d2a3a" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="592" y="622" width="58" height="58" rx="8" fill="#c34a3e"/>
+      <rect x="601" y="631" width="40" height="40" rx="5" fill="none" stroke="#f1f2ef" stroke-width="5" stroke-dasharray="9 7"/>
     </g>
-    <!-- enveloppe -->
-    <g>
-      <rect x="232" y="330" width="560" height="420" rx="36" fill="#f1f2ef"/>
-      <path d="M232 366 a36 36 0 0 1 36-36 h488 a36 36 0 0 1 36 36 l-280 224 z" fill="#ffffff"/>
-      <path d="M256 344 L512 552 L768 344" fill="none" stroke="#1d2a3a" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
-      <!-- timbre -->
-      <rect x="640" y="386" width="104" height="104" rx="10" fill="#c34a3e"/>
-      <rect x="656" y="402" width="72" height="72" rx="6" fill="none" stroke="#f1f2ef" stroke-width="8" stroke-dasharray="14 10"/>
     </g>
   </g>
 </svg>

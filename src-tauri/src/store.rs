@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
-const KEYRING_SERVICE: &str = "medor";
-/// Ancien nom de service : les secrets existants y sont migrés à la volée.
-const KEYRING_SERVICE_LEGACY: &str = "rangemail";
+const KEYRING_SERVICE: &str = "Médor";
+/// Anciens noms de service : les secrets existants y sont migrés à la volée.
+const KEYRING_SERVICES_LEGACY: [&str; 2] = ["medor", "rangemail"];
 
 /// Cache mémoire des secrets : une seule lecture du Trousseau par lancement,
 /// pour éviter les demandes de mot de passe macOS à répétition.
@@ -66,19 +66,21 @@ fn keyring_get(name: &str) -> Option<String> {
             return Some(value);
         }
     }
-    // Migration depuis l'ancien service « rangemail ».
-    if let Ok(old) = keyring::Entry::new(KEYRING_SERVICE_LEGACY, name) {
-        if let Ok(value) = old.get_password() {
-            let _ = keyring_set(name, &value);
-            let _ = old.delete_credential();
-            return Some(value);
+    // Migration depuis les anciens noms de service.
+    for legacy in KEYRING_SERVICES_LEGACY {
+        if let Ok(old) = keyring::Entry::new(legacy, name) {
+            if let Ok(value) = old.get_password() {
+                let _ = keyring_set(name, &value);
+                let _ = old.delete_credential();
+                return Some(value);
+            }
         }
     }
     None
 }
 
 fn keyring_delete(name: &str) {
-    for service in [KEYRING_SERVICE, KEYRING_SERVICE_LEGACY] {
+    for service in [KEYRING_SERVICE, KEYRING_SERVICES_LEGACY[0], KEYRING_SERVICES_LEGACY[1]] {
         if let Ok(entry) = keyring::Entry::new(service, name) {
             let _ = entry.delete_credential();
         }
