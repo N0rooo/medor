@@ -54,6 +54,8 @@ export const api = {
     invoke<ApercuMail[]>('get_sender_preview', { accountId, senderKey }),
   applyPlan: (accountId: string, selection: ApplySelection) =>
     invoke<ApplyResult>('apply_plan', { accountId, selection }),
+  unsubscribeMany: (accountId: string, senderKeys: string[]) =>
+    invoke<Record<string, string>>('unsubscribe_many', { accountId, senderKeys }),
   unsubscribeOneClick: (accountId: string, senderKey: string) =>
     invoke<UnsubscribeResult>('unsubscribe_one_click', { accountId, senderKey }),
 

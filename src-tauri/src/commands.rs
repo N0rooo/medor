@@ -1355,11 +1355,79 @@ pub async fn unsubscribe_one_click(
     sender_key: String,
 ) -> Result<UnsubscribeResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| e.to_string())?;
+        unsubscribe_sender(&app, &account_id, &sender_key, &client)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Désabonnement en masse : une vraie opération Médor — verrou du compte,
+/// progression dans le bandeau, annulable entre deux demandes.
+#[tauri::command]
+pub async fn unsubscribe_many(
+    app: AppHandle,
+    account_id: String,
+    sender_keys: Vec<String>,
+) -> Result<HashMap<String, String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "désabonnements")?;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let total = sender_keys.len() as u32;
+        let mut resultats: HashMap<String, String> = HashMap::new();
+        for (i, key) in sender_keys.iter().enumerate() {
+            if busy.annule() {
+                break;
+            }
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress {
+                    done: i as u32,
+                    total,
+                    label: "Désabonnements".into(),
+                },
+            );
+            let statut = match unsubscribe_sender(&app, &account_id, key, &client) {
+                Ok(r) if r.ok => "ok".to_string(),
+                Ok(r) if r.method == "lien" => "lien".to_string(),
+                Ok(r) => r.detail,
+                Err(e) => e,
+            };
+            resultats.insert(key.clone(), statut);
+        }
+        let _ = app.emit(
+            "apply-progress",
+            ApplyProgress {
+                done: total,
+                total,
+                label: "Désabonnements".into(),
+            },
+        );
+        Ok(resultats)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Demande le désabonnement d'un expéditeur (one-click RFC 8058 si possible).
+fn unsubscribe_sender(
+    app: &AppHandle,
+    account_id: &str,
+    sender_key: &str,
+    client: &reqwest::blocking::Client,
+) -> Result<UnsubscribeResult, String> {
+    {
         let sender = {
             let state = app.state::<AppState>();
             let scans = state.scans.lock().unwrap();
             let cache = scans
-                .get(&account_id)
+                .get(account_id)
                 .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
             cache
                 .plan
@@ -1385,10 +1453,6 @@ pub async fn unsubscribe_one_click(
             });
         }
 
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .map_err(|e| e.to_string())?;
         match client
             .post(&url)
             .header("content-type", "application/x-www-form-urlencoded")
@@ -1397,10 +1461,10 @@ pub async fn unsubscribe_one_click(
         {
             Ok(resp) if resp.status().is_success() => {
                 // Mémoriser pour surveiller les expéditeurs qui insistent.
-                let mut cfg = store::load_config(&app);
+                let mut cfg = store::load_config(app);
                 cfg.unsubscribed
-                    .insert(sender_key.clone(), chrono::Utc::now().timestamp());
-                store::save_config(&app, &cfg);
+                    .insert(sender_key.to_string(), chrono::Utc::now().timestamp());
+                store::save_config(app, &cfg);
                 Ok(UnsubscribeResult {
                     ok: true,
                     method: "one-click".into(),
@@ -1418,7 +1482,5 @@ pub async fn unsubscribe_one_click(
                 detail: url,
             }),
         }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
 }

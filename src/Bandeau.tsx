@@ -35,6 +35,7 @@ export default function Bandeau({
   onAnnuler: () => void
 }) {
   const [annule, setAnnule] = useState(false)
+  const [demandeAnnul, setDemandeAnnul] = useState(false)
   const [maintenant, setMaintenant] = useState(() => Date.now())
   const debutOp = useRef(Date.now())
   const debutPhase = useRef(Date.now())
@@ -107,7 +108,11 @@ export default function Bandeau({
     titre = 'Médor range…'
     note = applique.label ? `${applique.label}` : 'Préparation…'
     if (applique.total > 0) {
-      const unite = applique.label.startsWith('Nettoyage') ? 'dossiers' : 'mails'
+      const unite = applique.label.startsWith('Nettoyage')
+        ? 'dossiers'
+        : applique.label.startsWith('Désabonnements')
+          ? 'newsletters'
+          : 'mails'
       note += ` — ${applique.done.toLocaleString('fr-FR')}/${applique.total.toLocaleString('fr-FR')} ${unite}`
       note += suffixeRestant(applique.done, applique.total)
     }
@@ -135,16 +140,32 @@ export default function Bandeau({
         <div className="avancement" style={{ width: pct !== null ? `${pct}%` : '100%' }} />
       </div>
       <div style={{ marginTop: 8, textAlign: 'right' }}>
-        <button
-          className="discret"
-          disabled={annule}
-          onClick={() => {
-            setAnnule(true)
-            onAnnuler()
-          }}
-        >
-          {annule ? 'Annulation demandée…' : 'Annuler'}
-        </button>
+        {annule ? (
+          <button className="discret" disabled>
+            Annulation demandée…
+          </button>
+        ) : demandeAnnul ? (
+          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
+            Vraiment annuler ?
+            <button
+              className="danger"
+              onClick={() => {
+                setDemandeAnnul(false)
+                setAnnule(true)
+                onAnnuler()
+              }}
+            >
+              Oui, annuler
+            </button>
+            <button className="discret" onClick={() => setDemandeAnnul(false)}>
+              Non, continuer
+            </button>
+          </span>
+        ) : (
+          <button className="discret" onClick={() => setDemandeAnnul(true)}>
+            Annuler
+          </button>
+        )}
       </div>
     </div>
   )

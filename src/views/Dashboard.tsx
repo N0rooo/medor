@@ -557,6 +557,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               plan={plan}
               parCle={parCle}
               accountId={accountId}
+              occupe={occupe}
               progresser={setApplique}
             />
           )}
@@ -1049,17 +1050,20 @@ function Newsletters({
   plan,
   parCle,
   accountId,
+  occupe,
   progresser
 }: {
   plan: Plan
   parCle: Map<string, SenderGroup>
   accountId: string
+  occupe: boolean
   progresser: React.Dispatch<React.SetStateAction<ApplyProgress | null>>
 }) {
   const [statuts, setStatuts] = useState<Record<string, string>>({})
   const [occupes, setOccupes] = useState<Record<string, boolean>>({})
   const [armeSuppr, setArmeSuppr] = useState<string | null>(null)
   const [armeMasse, setArmeMasse] = useState<'corbeille' | 'desabo' | null>(null)
+  const [masseEnCours, setMasseEnCours] = useState<'corbeille' | 'desabo' | null>(null)
   const [rechercheNl, setRechercheNl] = useState('')
   const [tri, setTri] = useState<'volume' | 'lecture' | 'date' | 'nom'>('volume')
 
@@ -1125,31 +1129,45 @@ function Newsletters({
     }
   }
 
-  const restantes = lignes.filter((s) => !statuts[s.key])
-  const desabonnables = restantes.filter((s) => s.unsubscribeHttp)
+  // Seuls les expéditeurs déjà passés à la corbeille sortent du pot : un
+  // désabonnement ne supprime aucun mail, il ne change donc pas ce total.
+  const restantes = lignes.filter((s) => !(statuts[s.key] ?? '').startsWith('🗑️'))
+  const desabonnables = restantes.filter(
+    (s) => s.unsubscribeHttp && !statuts[s.key] && (s.unsubscribedAt == null || s.stillMailing)
+  )
   const totalMailsRestants = restantes.reduce((n, s) => n + s.total, 0)
 
   const desabonnerTout = async () => {
     setArmeMasse(null)
-    const cibles = [...desabonnables]
-    for (let i = 0; i < cibles.length; i++) {
-      progresser({ done: i, total: cibles.length, label: 'Désabonnements' })
-      const s = cibles[i]
-      try {
-        const res = await api.unsubscribeOneClick(accountId, s.key)
-        setStatuts((st) => ({
-          ...st,
-          [s.key]: res.ok ? '✓ Désabonnement demandé' : 'Lien à ouvrir manuellement'
-        }))
-      } catch (e) {
-        setStatuts((st) => ({ ...st, [s.key]: String(e) }))
-      }
+    setMasseEnCours('desabo')
+    try {
+      const res = await api.unsubscribeMany(
+        accountId,
+        desabonnables.map((s) => s.key)
+      )
+      setStatuts((st) => {
+        const suivant = { ...st }
+        for (const [key, statut] of Object.entries(res)) {
+          suivant[key] =
+            statut === 'ok'
+              ? '✓ Désabonnement demandé'
+              : statut === 'lien'
+                ? 'Lien à ouvrir manuellement'
+                : statut
+        }
+        return suivant
+      })
+    } catch (e) {
+      const m = String(e)
+      if (!m.includes('annulée')) alert(m)
+    } finally {
+      setMasseEnCours(null)
     }
-    progresser(null)
   }
 
   const supprimerTout = async () => {
     setArmeMasse(null)
+    setMasseEnCours('corbeille')
     progresser({ done: 0, total: totalMailsRestants, label: 'Corbeille' })
     try {
       const n = await api.trashSenders(
@@ -1165,8 +1183,10 @@ function Newsletters({
       })
       void n
     } catch (e) {
-      alert(String(e))
+      const m = String(e)
+      if (!m.includes('annulée')) alert(m)
     } finally {
+      setMasseEnCours(null)
       progresser(null)
     }
   }
@@ -1189,17 +1209,21 @@ function Newsletters({
           <>
             <button
               className="danger"
-              disabled={desabonnables.length === 0}
+              disabled={desabonnables.length === 0 || masseEnCours !== null || occupe}
               onClick={() => setArmeMasse('desabo')}
             >
-              Se désabonner de tout ({desabonnables.length})
+              {masseEnCours === 'desabo'
+                ? 'Désabonnements en cours…'
+                : `Se désabonner de tout (${desabonnables.length})`}
             </button>
             <button
               className="secondaire"
-              disabled={restantes.length === 0}
+              disabled={restantes.length === 0 || masseEnCours !== null || occupe}
               onClick={() => setArmeMasse('corbeille')}
             >
-              🗑️ Tout mettre à la corbeille ({totalMailsRestants.toLocaleString('fr-FR')} mails)
+              {masseEnCours === 'corbeille'
+                ? 'Mise à la corbeille en cours…'
+                : `🗑️ Tout mettre à la corbeille (${totalMailsRestants.toLocaleString('fr-FR')} mails)`}
             </button>
           </>
         ) : (

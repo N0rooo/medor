@@ -84,6 +84,7 @@ pub fn run() {
             commands::restore_inbox,
             commands::trash_senders,
             commands::unsubscribe_one_click,
+            commands::unsubscribe_many,
             commands::auto_pending,
             commands::auto_run_now,
             commands::auto_defer,
