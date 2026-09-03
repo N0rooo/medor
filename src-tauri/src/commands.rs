@@ -645,21 +645,28 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
     );
 
     // Persiste l'analyse : au prochain lancement, newsletters, indésirables
-    // et plan sont toujours là — pas besoin de tout refaire.
-    store::save_plan(
-        &app,
-        &account_id,
-        &store::PlanStocke { plan: plan.clone(), uids: uids.clone() },
-    );
-
-    let state = app.state::<AppState>();
-    state.scans.lock().unwrap().insert(
-        account_id,
-        ScanCache {
-            uids,
-            plan: plan.clone(),
-        },
-    );
+    // et plan sont toujours là — pas besoin de tout refaire. Exception : une
+    // analyse VIDE (boîte déjà rangée) n'écrase pas une analyse riche, sinon
+    // on perdrait la liste des newsletters juste après avoir rangé.
+    let garder_ancienne = plan.senders.is_empty()
+        && store::load_plan(&app, &account_id)
+            .map(|p| !p.plan.senders.is_empty())
+            .unwrap_or(false);
+    if !garder_ancienne {
+        store::save_plan(
+            &app,
+            &account_id,
+            &store::PlanStocke { plan: plan.clone(), uids: uids.clone() },
+        );
+        let state = app.state::<AppState>();
+        state.scans.lock().unwrap().insert(
+            account_id,
+            ScanCache {
+                uids,
+                plan: plan.clone(),
+            },
+        );
+    }
     Ok(plan)
 }
 

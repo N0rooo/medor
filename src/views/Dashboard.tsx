@@ -83,6 +83,8 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
   /** Le plan affiché a déjà été appliqué : on garde newsletters et
    * indésirables accessibles, mais plus de bouton « Appliquer ». */
   const [rangeFait, setRangeFait] = useState(false)
+  /** Note informative après une analyse qui n'a rien trouvé de nouveau. */
+  const [infoAnalyse, setInfoAnalyse] = useState<string | null>(null)
 
   const dernierEvenement = useRef(0)
   /** Une opération lancée depuis CETTE fenêtre est en cours : le bandeau ne
@@ -168,6 +170,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setCouleurs(teintes)
     setLabelsEdit(p.labels)
     setRangeFait(false)
+    setInfoAnalyse(null)
     setPlan(p)
   }
 
@@ -179,8 +182,16 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setScan({ phase: 'connexion', done: 0, total: 0 })
     try {
       const p = await api.scanAccount(accountId, portee, ecraser)
-      adopterPlan(p)
-      setOnglet('libelles')
+      if (p.senders.length === 0 && plan && plan.senders.length > 0) {
+        // Boîte déjà propre : on garde l'analyse riche (newsletters,
+        // indésirables) au lieu de tout remplacer par du vide.
+        setInfoAnalyse(
+          'Rien de nouveau à ranger : la boîte de réception est déjà propre. La dernière analyse reste affichée ci-dessous.'
+        )
+      } else {
+        adopterPlan(p)
+        setOnglet('libelles')
+      }
     } catch (e) {
       const msg = String(e)
       if (!msg.includes('annulée')) setErreur(msg)
@@ -525,6 +536,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             </div>
           </div>
 
+          {infoAnalyse && <div className="info">{infoAnalyse}</div>}
           {plan.aiNote && <div className="info">{plan.aiNote}</div>}
 
           <div className="onglets">
