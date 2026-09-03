@@ -21,6 +21,8 @@ fn montrer_fenetre(app: &tauri::AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -63,7 +65,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
-            commands::set_onboarding,
             commands::set_settings,
             commands::set_autostart,
             commands::add_account,
@@ -74,9 +75,18 @@ pub fn run() {
             commands::oauth_cancel,
             commands::scan_account,
             commands::apply_plan,
+            commands::cancel_operation,
+            commands::sort_everything,
+            commands::get_journal,
+            commands::undo_journal_entry,
+            commands::get_sender_preview,
             commands::delete_labels,
             commands::restore_inbox,
-            commands::unsubscribe_one_click
+            commands::trash_senders,
+            commands::unsubscribe_one_click,
+            commands::auto_pending,
+            commands::auto_run_now,
+            commands::auto_defer
         ])
         .build(tauri::generate_context!())
         .expect("erreur au lancement de Médor");

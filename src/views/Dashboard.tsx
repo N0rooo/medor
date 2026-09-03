@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, onApplyProgress, onScanProgress } from '../api'
 import type {
+  ApercuMail,
   AppBootstrap,
   ApplyProgress,
   ApplyResult,
@@ -17,7 +18,6 @@ interface Props {
   accountId: string
   onSelectAccount: (id: string) => void
   onAddAccount: () => void
-  onEditOnboarding: () => void
 }
 
 type Onglet = 'libelles' | 'newsletters' | 'spam'
@@ -39,17 +39,18 @@ const PALETTE = [
 ]
 
 const COULEURS_DEFAUT: Record<string, string> = {
-  'Banque & finance': '#16a766',
-  'Factures & reçus': '#ffad47',
-  'Shopping & livraisons': '#e66550',
-  'Voyages & réservations': '#2da2bb',
+  Finances: '#16a766',
+  Factures: '#ffad47',
+  Shopping: '#e66550',
+  Voyages: '#2da2bb',
+  Sport: '#43d692',
+  Santé: '#f691b3',
+  Loisirs: '#a479e2',
   'Réseaux sociaux': '#4a86e8',
   Newsletters: '#fad165',
-  'Sécurité & comptes': '#fb4c2f',
+  Sécurité: '#fb4c2f',
   Administratif: '#285bac',
-  Travail: '#a479e2',
-  'Dev & outils': '#999999',
-  Notifications: '#43d692'
+  Dev: '#999999'
 }
 
 function couleurAuto(nom: string): string {
@@ -59,13 +60,7 @@ function couleurAuto(nom: string): string {
   return PALETTE[h % PALETTE.length]
 }
 
-export default function Dashboard({
-  boot,
-  accountId,
-  onSelectAccount,
-  onAddAccount,
-  onEditOnboarding
-}: Props) {
+export default function Dashboard({ boot, accountId, onSelectAccount, onAddAccount }: Props) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [scan, setScan] = useState<ScanProgress | null>(null)
   const [applique, setApplique] = useState<ApplyProgress | null>(null)
@@ -77,17 +72,48 @@ export default function Dashboard({
   const [expediteursCoches, setExpediteursCoches] = useState<Record<string, boolean>>({})
   const [spamCoches, setSpamCoches] = useState<Record<string, boolean>>({})
   const [portee, setPortee] = useState<ScanScope>('lus')
+  const [ecraser, setEcraser] = useState(false)
   const [couleurs, setCouleurs] = useState<Record<string, string>>({})
+  const [enBoucle, setEnBoucle] = useState(false)
+  const [armeRangeTout, setArmeRangeTout] = useState(false)
   /** Copie modifiable des libellés du plan : renommages et réassociations. */
   const [labelsEdit, setLabelsEdit] = useState<PlanLabel[]>([])
 
+  const dernierEvenement = useRef(0)
+  /** Une opération lancée depuis CETTE fenêtre est en cours : le bandeau ne
+   * doit pas être « ramassé » pendant ses phases silencieuses (IA…). */
+  const opLocale = useRef(false)
+
   useEffect(() => {
+    // Les événements pilotent le bandeau, même pour les opérations lancées en
+    // arrière-plan (rangement automatique, Range tout…).
     const desabos: Promise<() => void>[] = [
-      onScanProgress((p) => setScan((prev) => (prev === null ? prev : p))),
-      onApplyProgress((p) => setApplique((prev) => (prev === null ? prev : p)))
+      onScanProgress((p) => {
+        dernierEvenement.current = Date.now()
+        setScan(p)
+        setApplique(null)
+      }),
+      onApplyProgress((p) => {
+        dernierEvenement.current = Date.now()
+        setApplique(p)
+        setScan(null)
+      })
     ]
+    // Sans événement depuis 6 s, l'opération de fond est finie : on range le bandeau.
+    const gc = setInterval(() => {
+      if (
+        !opLocale.current &&
+        dernierEvenement.current > 0 &&
+        Date.now() - dernierEvenement.current > 6000
+      ) {
+        dernierEvenement.current = 0
+        setScan(null)
+        setApplique(null)
+      }
+    }, 2000)
     return () => {
       desabos.forEach((d) => d.then((fn) => fn()))
+      clearInterval(gc)
     }
   }, [])
 
@@ -108,15 +134,14 @@ export default function Dashboard({
   const lancerAnalyse = async () => {
     setErreur(null)
     setResultat(null)
-    setPlan(null)
+    opLocale.current = true
+    // Le plan précédent reste visible et manipulable pendant la nouvelle analyse.
     setScan({ phase: 'connexion', done: 0, total: 0 })
     try {
-      const p = await api.scanAccount(accountId, portee)
+      const p = await api.scanAccount(accountId, portee, ecraser)
       const libelles: Record<string, boolean> = {}
       for (const l of p.labels) {
-        const estNewsletters = l.name === 'Newsletters'
-        const archiveNews = boot.onboarding?.archiveReadNewsletters ?? true
-        libelles[l.name] = l.name !== 'À trier' && (!estNewsletters || archiveNews)
+        libelles[l.name] = l.name !== 'À trier'
       }
       const spam: Record<string, boolean> = {}
       for (const key of p.spamSuspects) spam[key] = true
@@ -133,8 +158,10 @@ export default function Dashboard({
       setPlan(p)
       setOnglet('libelles')
     } catch (e) {
-      setErreur(String(e))
+      const msg = String(e)
+      if (!msg.includes('annulée')) setErreur(msg)
     } finally {
+      opLocale.current = false
       setScan(null)
     }
   }
@@ -275,16 +302,43 @@ export default function Dashboard({
     return n
   }, [selection, parCle])
 
+  const rangeTout = async () => {
+    setArmeRangeTout(false)
+    setErreur(null)
+    setResultat(null)
+    setEnBoucle(true)
+    opLocale.current = true
+    setScan({ phase: 'connexion', done: 0, total: 0 })
+    setApplique({ done: 0, total: 0, label: '' })
+    try {
+      // « Range tout » est autonome : toute la boîte, mémoire + libellés existants.
+      const res = await api.sortEverything(accountId, 'tous', false)
+      setResultat(res)
+      setPlan(null)
+    } catch (e) {
+      const msg = String(e)
+      if (!msg.includes('annulée')) setErreur(msg)
+    } finally {
+      opLocale.current = false
+      setEnBoucle(false)
+      setScan(null)
+      setApplique(null)
+    }
+  }
+
   const appliquer = async () => {
     setErreur(null)
+    opLocale.current = true
     setApplique({ done: 0, total: totalArchivables + totalSpam, label: '' })
     try {
       const res = await api.applyPlan(accountId, selection)
       setResultat(res)
       setPlan(null)
     } catch (e) {
-      setErreur(String(e))
+      const msg = String(e)
+      if (!msg.includes('annulée')) setErreur(msg)
     } finally {
+      opLocale.current = false
       setApplique(null)
     }
   }
@@ -304,14 +358,13 @@ export default function Dashboard({
         <button className="discret" onClick={onAddAccount}>
           + Ajouter un compte
         </button>
-        <button className="discret" style={{ marginLeft: 'auto' }} onClick={onEditOnboarding}>
-          ⚙︎ Préférences de tri
-        </button>
       </div>
 
       {erreur && <div className="erreur">{erreur}</div>}
 
-      {resultat && <Resultat resultat={resultat} onRelancer={lancerAnalyse} />}
+      {resultat && (
+        <Resultat resultat={resultat} onRelancer={lancerAnalyse} provider={compte?.provider} />
+      )}
 
       {!plan && !resultat && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>
@@ -342,9 +395,61 @@ export default function Dashboard({
               </button>
             ))}
           </div>
-          <button className="principal large" onClick={lancerAnalyse} disabled={scan !== null}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              margin: '0 auto 22px',
+              cursor: 'pointer',
+              color: 'var(--gris)',
+              fontSize: 13.5
+            }}
+          >
+            <input type="checkbox" checked={ecraser} onChange={(e) => setEcraser(e.target.checked)} />
+            Repartir de zéro : ignorer mes libellés existants, l’IA repense toute l’organisation
+          </label>
+          <button
+            className="principal large"
+            onClick={lancerAnalyse}
+            disabled={scan !== null || enBoucle}
+          >
             Analyser ma boîte
           </button>
+
+          <div style={{ margin: '30px auto 0', maxWidth: 560, borderTop: '1px solid var(--ligne)', paddingTop: 22 }}>
+            <p className="aide" style={{ marginBottom: 12 }}>
+              Ou laissez Médor tout faire, sans rien valider :
+            </p>
+            <button
+              className="secondaire large"
+              onClick={() => setArmeRangeTout(true)}
+              disabled={scan !== null || enBoucle}
+            >
+              🦴 Range tout, tout seul
+            </button>
+            {armeRangeTout && (
+              <div className="info" style={{ marginTop: 14, textAlign: 'left' }}>
+                Médor va analyser et ranger <strong>toute la boîte de réception</strong>, tranche
+                par tranche, jusqu'au bout. Aucun mail n'est supprimé, et chaque étape reste
+                annulable depuis le Journal.
+                <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
+                  <button className="principal" onClick={rangeTout}>
+                    Au travail, Médor
+                  </button>
+                  <button className="secondaire" onClick={() => setArmeRangeTout(false)}>
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {boot.totalArchived > 0 && (
+            <p className="precision" style={{ marginTop: 22, textAlign: 'center', color: 'var(--gris)', fontSize: 13 }}>
+              🦴 Médor a déjà rangé {boot.totalArchived.toLocaleString('fr-FR')} mails pour vous
+            </p>
+          )}
         </div>
       )}
 
@@ -369,7 +474,10 @@ export default function Dashboard({
           <div className="stats">
             <div className="stat">
               <div className="valeur">{plan.scanned.toLocaleString('fr-FR')}</div>
-              <div className="intitule">mails analysés</div>
+              <div className="intitule">
+                mails analysés · {plan.inboxTotal.toLocaleString('fr-FR')} au total en boîte de
+                réception
+              </div>
             </div>
             <div className="stat">
               <div className="valeur">{plan.senders.length.toLocaleString('fr-FR')}</div>
@@ -425,10 +533,22 @@ export default function Dashboard({
             />
           )}
           {onglet === 'newsletters' && (
-            <Newsletters plan={plan} parCle={parCle} accountId={accountId} />
+            <Newsletters
+              plan={plan}
+              parCle={parCle}
+              accountId={accountId}
+              progresser={setApplique}
+            />
           )}
           {onglet === 'spam' && (
-            <Spam plan={plan} parCle={parCle} spamCoches={spamCoches} setSpamCoches={setSpamCoches} />
+            <Spam
+              plan={plan}
+              parCle={parCle}
+              accountId={accountId}
+              spamCoches={spamCoches}
+              setSpamCoches={setSpamCoches}
+              progresser={setApplique}
+            />
           )}
 
           <div className="barre-action">
@@ -459,8 +579,6 @@ export default function Dashboard({
         </>
       )}
 
-      {scan && <VoileProgression scan={scan} />}
-      {applique && <VoileApplication p={applique} />}
     </div>
   )
 }
@@ -498,10 +616,27 @@ function Libelles({
 }) {
   const [ouverts, setOuverts] = useState<Record<string, boolean>>({})
   const [groupesOuverts, setGroupesOuverts] = useState<Record<string, boolean>>({})
+  const [sousOuverts, setSousOuverts] = useState<Record<string, boolean>>({})
   const [paletteOuverte, setPaletteOuverte] = useState<string | null>(null)
   const [edition, setEdition] = useState<{ cible: string; groupe: boolean; valeur: string } | null>(
     null
   )
+  const [recherche, setRecherche] = useState('')
+  const [apercu, setApercu] = useState<{ key: string; mails: ApercuMail[] | null } | null>(null)
+
+  const voirApercu = async (key: string) => {
+    if (apercu?.key === key) {
+      setApercu(null)
+      return
+    }
+    setApercu({ key, mails: null })
+    try {
+      const mails = await api.getSenderPreview(plan.accountId, key)
+      setApercu((prev) => (prev?.key === key ? { key, mails } : prev))
+    } catch {
+      setApercu(null)
+    }
+  }
 
   const nomsLabels = useMemo(() => labels.map((l) => l.name).sort(), [labels])
 
@@ -598,6 +733,31 @@ function Libelles({
     return ordre.map((racine) => ({ racine, items: map.get(racine)! }))
   }, [labels])
 
+  // Recherche : filtre libellés et expéditeurs.
+  const groupesAffiches = useMemo(() => {
+    const q = recherche.trim().toLowerCase()
+    if (q === '') return groupes
+    const senderMatch = (k: string) => {
+      const s = parCle.get(k)
+      return (
+        s !== undefined &&
+        (s.address.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+      )
+    }
+    return groupes
+      .map(({ racine, items }) => ({
+        racine,
+        items: items
+          .map((l) =>
+            l.name.toLowerCase().includes(q)
+              ? l
+              : { ...l, senderKeys: l.senderKeys.filter(senderMatch) }
+          )
+          .filter((l) => l.name.toLowerCase().includes(q) || l.senderKeys.length > 0)
+      }))
+      .filter((g) => g.items.length > 0)
+  }, [groupes, recherche, parCle])
+
   const rangee = (l: PlanLabel, nomAffiche: string, topCouleur?: string) => {
     const ouvert = ouverts[l.name] ?? false
     return (
@@ -630,7 +790,8 @@ function Libelles({
               if (!s) return null
               const enSpam = clesSpamActives.has(k)
               return (
-                <div className="rangee-expediteur" key={k}>
+                <div key={k}>
+                <div className="rangee-expediteur">
                   <input
                     type="checkbox"
                     disabled={enSpam}
@@ -656,7 +817,41 @@ function Libelles({
                       </option>
                     ))}
                   </select>
+                  <button
+                    className="discret"
+                    title="Voir les mails de cet expéditeur"
+                    style={{ padding: '2px 6px' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      voirApercu(k)
+                    }}
+                  >
+                    👁
+                  </button>
                   <span className="nombres">{s.total} mails</span>
+                </div>
+                {apercu?.key === k && (
+                  <div className="apercu-liste">
+                    {apercu.mails === null && <span className="aide">Chargement…</span>}
+                    {apercu.mails?.map((m, i) => (
+                      <div className="apercu-mail" key={i}>
+                        <span className="mono" style={{ color: 'var(--gris)', flex: 'none' }}>
+                          {m.date}
+                        </span>
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontWeight: m.seen ? 400 : 600
+                          }}
+                        >
+                          {m.subject || '(sans objet)'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 </div>
               )
             })}
@@ -668,6 +863,13 @@ function Libelles({
 
   return (
     <div>
+      <input
+        type="text"
+        className="champ-recherche"
+        placeholder="🔍 Rechercher un libellé, un expéditeur, une adresse…"
+        value={recherche}
+        onChange={(e) => setRecherche(e.target.value)}
+      />
       <p className="aide" style={{ marginBottom: 14 }}>
         Décochez un libellé (ou un expéditeur) pour ne pas y toucher.{' '}
         {plan.scope === 'lus' && (
@@ -691,7 +893,7 @@ function Libelles({
         <span className="badge existant">déjà en place</span> libellé existant, simplement
         complété — jamais renommé ni vidé.
       </p>
-      {groupes.map(({ racine, items }) => {
+      {groupesAffiches.map(({ racine, items }) => {
         if (items.length === 1 && items[0].name === racine) {
           return rangee(items[0], racine, racine)
         }
@@ -739,9 +941,79 @@ function Libelles({
             {paletteOuverte === racine && paletteRow(racine)}
             {groupeOuvert && (
               <div className="groupe-enfants">
-                {items.map((l) =>
-                  rangee(l, l.name === racine ? `${racine} (directement)` : l.name.split('/').slice(1).join('/'))
-                )}
+                {(() => {
+                  // Sous-groupes par 2e niveau : Sport → Running → Strava…
+                  const ordre: string[] = []
+                  const map = new Map<string, PlanLabel[]>()
+                  for (const l of items) {
+                    const segs = l.name.split('/')
+                    const sous = segs.length >= 2 ? segs[1] : ''
+                    if (!map.has(sous)) {
+                      map.set(sous, [])
+                      ordre.push(sous)
+                    }
+                    map.get(sous)!.push(l)
+                  }
+                  return ordre.map((sous) => {
+                    const sitems = map.get(sous)!
+                    if (sous === '') {
+                      return sitems.map((l) => rangee(l, `${racine} (directement)`))
+                    }
+                    if (sitems.length === 1 && sitems[0].name === `${racine}/${sous}`) {
+                      return rangee(sitems[0], sous)
+                    }
+                    const cle = `${racine}/${sous}`
+                    const ouvert2 = sousOuverts[cle] ?? false
+                    const coches2 = sitems.every((l) => libellesCoches[l.name])
+                    const total2 = sitems.reduce((n, l) => n + l.totalCount, 0)
+                    return (
+                      <div className="groupe-libelles niveau2" key={cle}>
+                        <div
+                          className="groupe-tete"
+                          onClick={() => setSousOuverts((o) => ({ ...o, [cle]: !ouvert2 }))}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={coches2}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                              setLibellesCoches((prev) => {
+                                const suivant = { ...prev }
+                                sitems.forEach((l) => {
+                                  suivant[l.name] = e.target.checked
+                                })
+                                return suivant
+                              })
+                            }
+                          />
+                          <span className="nom-libelle">
+                            {ouvert2 ? '📂' : '📁'} {sous}
+                          </span>
+                          {crayon(cle, true)}
+                          <span className="compte-mails">
+                            {total2.toLocaleString('fr-FR')} mails · {sitems.length} dossiers{' '}
+                            {ouvert2 ? '▾' : '▸'}
+                          </span>
+                        </div>
+                        {edition && edition.groupe && edition.cible === cle && (
+                          <div style={{ padding: '0 16px 10px' }}>{champEdition()}</div>
+                        )}
+                        {ouvert2 && (
+                          <div className="groupe-enfants">
+                            {sitems.map((l) =>
+                              rangee(
+                                l,
+                                l.name === cle
+                                  ? `${sous} (directement)`
+                                  : l.name.split('/').slice(2).join('/')
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                })()}
               </div>
             )}
           </div>
@@ -756,21 +1028,61 @@ function Libelles({
 function Newsletters({
   plan,
   parCle,
-  accountId
+  accountId,
+  progresser
 }: {
   plan: Plan
   parCle: Map<string, SenderGroup>
   accountId: string
+  progresser: React.Dispatch<React.SetStateAction<ApplyProgress | null>>
 }) {
   const [statuts, setStatuts] = useState<Record<string, string>>({})
   const [occupes, setOccupes] = useState<Record<string, boolean>>({})
+  const [armeSuppr, setArmeSuppr] = useState<string | null>(null)
+  const [armeMasse, setArmeMasse] = useState<'corbeille' | 'desabo' | null>(null)
+  const [rechercheNl, setRechercheNl] = useState('')
+  const [tri, setTri] = useState<'volume' | 'lecture' | 'date' | 'nom'>('volume')
+
+  const supprimer = async (s: SenderGroup) => {
+    setOccupes((o) => ({ ...o, [s.key]: true }))
+    setArmeSuppr(null)
+    progresser({ done: 0, total: s.total, label: 'Corbeille' })
+    try {
+      const n = await api.trashSenders(accountId, [s.key])
+      setStatuts((st) => ({ ...st, [s.key]: `🗑️ ${n} mails à la corbeille` }))
+    } catch (e) {
+      setStatuts((st) => ({ ...st, [s.key]: String(e) }))
+    } finally {
+      progresser(null)
+      setOccupes((o) => ({ ...o, [s.key]: false }))
+    }
+  }
 
   const lignes = plan.newsletters
     .map((k) => parCle.get(k))
     .filter((s): s is SenderGroup => Boolean(s))
-    .sort((a, b) => b.total - a.total)
+    .filter((s) => {
+      const q = rechercheNl.trim().toLowerCase()
+      return (
+        q === '' || s.address.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+      )
+    })
+    .sort((a, b) => {
+      // Ceux qui écrivent encore malgré un désabonnement passent devant.
+      if (a.stillMailing !== b.stillMailing) return a.stillMailing ? -1 : 1
+      switch (tri) {
+        case 'lecture':
+          return b.read / Math.max(1, b.total) - a.read / Math.max(1, a.total)
+        case 'date':
+          return b.lastTs - a.lastTs
+        case 'nom':
+          return (a.name || a.address).localeCompare(b.name || b.address, 'fr')
+        default:
+          return b.total - a.total
+      }
+    })
 
-  if (lignes.length === 0) {
+  if (lignes.length === 0 && rechercheNl.trim() === '') {
     return <div className="info">Aucune newsletter repérée dans la période analysée.</div>
   }
 
@@ -793,19 +1105,117 @@ function Newsletters({
     }
   }
 
+  const restantes = lignes.filter((s) => !statuts[s.key])
+  const desabonnables = restantes.filter((s) => s.unsubscribeHttp)
+  const totalMailsRestants = restantes.reduce((n, s) => n + s.total, 0)
+
+  const desabonnerTout = async () => {
+    setArmeMasse(null)
+    const cibles = [...desabonnables]
+    for (let i = 0; i < cibles.length; i++) {
+      progresser({ done: i, total: cibles.length, label: 'Désabonnements' })
+      const s = cibles[i]
+      try {
+        const res = await api.unsubscribeOneClick(accountId, s.key)
+        setStatuts((st) => ({
+          ...st,
+          [s.key]: res.ok ? '✓ Désabonnement demandé' : 'Lien à ouvrir manuellement'
+        }))
+      } catch (e) {
+        setStatuts((st) => ({ ...st, [s.key]: String(e) }))
+      }
+    }
+    progresser(null)
+  }
+
+  const supprimerTout = async () => {
+    setArmeMasse(null)
+    progresser({ done: 0, total: totalMailsRestants, label: 'Corbeille' })
+    try {
+      const n = await api.trashSenders(
+        accountId,
+        restantes.map((s) => s.key)
+      )
+      setStatuts((st) => {
+        const suivant = { ...st }
+        restantes.forEach((s) => {
+          suivant[s.key] = '🗑️ à la corbeille'
+        })
+        return suivant
+      })
+      void n
+    } catch (e) {
+      alert(String(e))
+    } finally {
+      progresser(null)
+    }
+  }
+
   return (
     <div>
+      <input
+        type="text"
+        className="champ-recherche"
+        placeholder="🔍 Rechercher une newsletter…"
+        value={rechercheNl}
+        onChange={(e) => setRechercheNl(e.target.value)}
+      />
       <p className="aide" style={{ marginBottom: 14 }}>
         « Se désabonner » utilise le désabonnement en un clic quand l’expéditeur le permet, sinon
-        ouvre sa page de désabonnement.
+        ouvre sa page de désabonnement. Cliquez sur un en-tête de colonne pour trier.
       </p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+        {armeMasse === null ? (
+          <>
+            <button
+              className="danger"
+              disabled={desabonnables.length === 0}
+              onClick={() => setArmeMasse('desabo')}
+            >
+              Se désabonner de tout ({desabonnables.length})
+            </button>
+            <button
+              className="secondaire"
+              disabled={restantes.length === 0}
+              onClick={() => setArmeMasse('corbeille')}
+            >
+              🗑️ Tout mettre à la corbeille ({totalMailsRestants.toLocaleString('fr-FR')} mails)
+            </button>
+          </>
+        ) : (
+          <div className="erreur" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span>
+              {armeMasse === 'desabo'
+                ? `Demander le désabonnement aux ${desabonnables.length} newsletters ?`
+                : `Mettre ${totalMailsRestants.toLocaleString('fr-FR')} mails de ${restantes.length} newsletters à la corbeille ?`}
+            </span>
+            <button
+              className="danger"
+              onClick={armeMasse === 'desabo' ? desabonnerTout : supprimerTout}
+            >
+              Oui
+            </button>
+            <button className="secondaire" onClick={() => setArmeMasse(null)}>
+              Annuler
+            </button>
+          </div>
+        )}
+      </div>
       <table className="liste">
         <thead>
           <tr>
-            <th>Expéditeur</th>
-            <th>Volume</th>
-            <th>Lecture</th>
-            <th>Dernier mail</th>
+            <th className="triable" onClick={() => setTri('nom')}>
+              Expéditeur{tri === 'nom' ? ' ▾' : ''}
+            </th>
+            <th className="triable" onClick={() => setTri('volume')}>
+              Volume{tri === 'volume' ? ' ▾' : ''}
+            </th>
+            <th className="triable" onClick={() => setTri('lecture')}>
+              Lecture{tri === 'lecture' ? ' ▾' : ''}
+            </th>
+            <th className="triable" onClick={() => setTri('date')}>
+              Dernier mail{tri === 'date' ? ' ▾' : ''}
+            </th>
             <th></th>
           </tr>
         </thead>
@@ -816,7 +1226,15 @@ function Newsletters({
             return (
               <tr key={s.key}>
                 <td>
-                  <div>{s.name || s.address}</div>
+                  <div>
+                    {s.name || s.address}{' '}
+                    {s.stillMailing && (
+                      <span className="badge spam">⚠️ écrit encore malgré le désabonnement</span>
+                    )}
+                    {!s.stillMailing && s.unsubscribedAt != null && (
+                      <span className="badge existant">✓ désabonné</span>
+                    )}
+                  </div>
                   <div className="mono" style={{ color: 'var(--gris)' }}>
                     {s.address}
                   </div>
@@ -827,27 +1245,44 @@ function Newsletters({
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {statuts[s.key] ? (
                     <span className="aide">{statuts[s.key]}</span>
-                  ) : peut ? (
+                  ) : armeSuppr === s.key ? (
                     <>
-                      {s.unsubscribeHttp ? (
-                        <button
-                          className="danger"
-                          disabled={occupes[s.key]}
-                          onClick={() => desabonner(s)}
-                        >
-                          {occupes[s.key] ? '…' : 'Se désabonner'}
-                        </button>
-                      ) : (
-                        <button
-                          className="secondaire"
-                          onClick={() => api.openUrl(s.unsubscribeMailto!)}
-                        >
-                          Par e-mail
-                        </button>
-                      )}
+                      <span className="aide">Mettre les {s.total} mails à la corbeille ?</span>{' '}
+                      <button className="danger" disabled={occupes[s.key]} onClick={() => supprimer(s)}>
+                        Oui
+                      </button>{' '}
+                      <button className="secondaire" onClick={() => setArmeSuppr(null)}>
+                        Non
+                      </button>
                     </>
                   ) : (
-                    <span className="aide">—</span>
+                    <>
+                      {peut &&
+                        (s.unsubscribeHttp ? (
+                          <button
+                            className="danger"
+                            disabled={occupes[s.key]}
+                            onClick={() => desabonner(s)}
+                          >
+                            {occupes[s.key] ? '…' : 'Se désabonner'}
+                          </button>
+                        ) : (
+                          <button
+                            className="secondaire"
+                            onClick={() => api.openUrl(s.unsubscribeMailto!)}
+                          >
+                            Par e-mail
+                          </button>
+                        ))}{' '}
+                      <button
+                        className="secondaire"
+                        title={`Mettre les ${s.total} mails de cet expéditeur à la corbeille`}
+                        disabled={occupes[s.key]}
+                        onClick={() => setArmeSuppr(s.key)}
+                      >
+                        🗑️
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -864,21 +1299,48 @@ function Newsletters({
 function Spam({
   plan,
   parCle,
+  accountId,
   spamCoches,
-  setSpamCoches
+  setSpamCoches,
+  progresser
 }: {
   plan: Plan
   parCle: Map<string, SenderGroup>
+  accountId: string
   spamCoches: Record<string, boolean>
   setSpamCoches: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  progresser: React.Dispatch<React.SetStateAction<ApplyProgress | null>>
 }) {
+  const [statuts, setStatuts] = useState<Record<string, string>>({})
+  const [armeSuppr, setArmeSuppr] = useState<string | null>(null)
+
+  const supprimer = async (s: SenderGroup) => {
+    setArmeSuppr(null)
+    progresser({ done: 0, total: s.total, label: 'Corbeille' })
+    try {
+      const n = await api.trashSenders(accountId, [s.key])
+      setStatuts((st) => ({ ...st, [s.key]: `🗑️ ${n} à la corbeille` }))
+      setSpamCoches((prev) => ({ ...prev, [s.key]: false }))
+    } catch (e) {
+      setStatuts((st) => ({ ...st, [s.key]: String(e) }))
+    } finally {
+      progresser(null)
+    }
+  }
+
   const lignes = plan.spamSuspects
     .map((k) => parCle.get(k))
     .filter((s): s is SenderGroup => Boolean(s))
     .sort((a, b) => b.total - a.total)
 
   if (lignes.length === 0) {
-    return <div className="succes">Rien de suspect : votre boîte a l’air saine.</div>
+    return (
+      <div className="succes">
+        {plan.scope === 'lus'
+          ? 'Une analyse « mails déjà lus » ne peut pas repérer les expéditeurs jamais lus — relancez en « non lus » ou « toute la boîte » pour la chasse aux indésirables.'
+          : 'Rien de suspect dans la boîte de réception. (Le dossier spam de votre compte n’est pas analysé : ce qui y est déjà a été filtré par votre fournisseur.)'}
+      </div>
+    )
   }
 
   return (
@@ -895,6 +1357,7 @@ function Spam({
             <th>Mails</th>
             <th>Jamais lus</th>
             <th>Exemple de sujet</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -915,8 +1378,30 @@ function Spam({
               </td>
               <td className="mono">{s.total}</td>
               <td className="mono">{s.unread}</td>
-              <td className="aide" style={{ maxWidth: 320 }}>
+              <td className="aide" style={{ maxWidth: 280 }}>
                 {s.sampleSubjects[0] ?? ''}
+              </td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {statuts[s.key] ? (
+                  <span className="aide">{statuts[s.key]}</span>
+                ) : armeSuppr === s.key ? (
+                  <>
+                    <button className="danger" onClick={() => supprimer(s)}>
+                      Oui, corbeille
+                    </button>{' '}
+                    <button className="secondaire" onClick={() => setArmeSuppr(null)}>
+                      Non
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="secondaire"
+                    title={`Mettre les ${s.total} mails à la corbeille`}
+                    onClick={() => setArmeSuppr(s.key)}
+                  >
+                    🗑️
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -926,94 +1411,23 @@ function Spam({
   )
 }
 
-// -------------------------------------------------------------- Progression
-
-const PHASES: Record<ScanProgress['phase'], string> = {
-  connexion: 'Connexion au serveur…',
-  liste: 'Inventaire de la boîte de réception…',
-  lecture: 'Lecture des en-têtes…',
-  classement: 'Regroupement par expéditeur…',
-  ia: 'Classement intelligent par l’IA…'
-}
-
-function formatDuree(s: number): string {
-  if (s < 60) return `${s} s`
-  return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`
-}
-
-function VoileProgression({ scan }: { scan: ScanProgress }) {
-  const [maintenant, setMaintenant] = useState(() => Date.now())
-  const debutPhase = useRef(Date.now())
-  const phasePrec = useRef(scan.phase)
-  if (scan.phase !== phasePrec.current) {
-    phasePrec.current = scan.phase
-    debutPhase.current = Date.now()
-  }
-  useEffect(() => {
-    const t = setInterval(() => setMaintenant(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
-
-  const ecoule = Math.max(0, Math.floor((maintenant - debutPhase.current) / 1000))
-  const pct = scan.total > 0 ? Math.round((scan.done / scan.total) * 100) : null
-
-  let estimation: string | null = null
-  if (scan.phase === 'ia' && scan.done > 0 && scan.done < scan.total) {
-    const restant = Math.round((ecoule / scan.done) * (scan.total - scan.done))
-    if (restant > 3) estimation = `≈ ${formatDuree(restant)} restantes`
-  }
-
-  return (
-    <div className="voile">
-      <div className="panneau-progression">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-          <Mascotte taille={46} humeur="renifle" />
-          <h2 style={{ margin: 0 }}>Médor renifle la boîte…</h2>
-        </div>
-        <div className="note">
-          {PHASES[scan.phase]}
-          {scan.phase === 'lecture' && scan.total > 0 && ` (${scan.done}/${scan.total})`}
-          {scan.phase === 'ia' && scan.total > 0 && ` — étape ${scan.done}/${scan.total}`}
-          {scan.note ? ` — ${scan.note}` : ''}
-        </div>
-        {scan.phase === 'ia' && (
-          <div className="note" style={{ minHeight: 18 }}>
-            Les lots partent en parallèle — écoulé : {formatDuree(ecoule)}
-            {estimation ? ` · ${estimation}` : ''}
-          </div>
-        )}
-        <div className="rail">
-          <div className="avancement" style={{ width: pct !== null ? `${pct}%` : '100%' }} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function VoileApplication({ p }: { p: ApplyProgress }) {
-  const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : null
-  return (
-    <div className="voile">
-      <div className="panneau-progression">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-          <Mascotte taille={46} humeur="renifle" />
-          <h2 style={{ margin: 0 }}>Médor range…</h2>
-        </div>
-        <div className="note">
-          {p.label ? `Libellé « ${p.label} »` : 'Préparation…'}
-          {p.total > 0 && ` — ${p.done.toLocaleString('fr-FR')}/${p.total.toLocaleString('fr-FR')} mails`}
-        </div>
-        <div className="rail">
-          <div className="avancement" style={{ width: pct !== null ? `${pct}%` : '100%' }} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ------------------------------------------------------------------ Résultat
 
-function Resultat({ resultat, onRelancer }: { resultat: ApplyResult; onRelancer: () => void }) {
+const URL_BOITES: Record<string, string> = {
+  gmail: 'https://mail.google.com',
+  outlook: 'https://outlook.live.com/mail',
+  icloud: 'https://www.icloud.com/mail'
+}
+
+function Resultat({
+  resultat,
+  onRelancer,
+  provider
+}: {
+  resultat: ApplyResult
+  onRelancer: () => void
+  provider?: string
+}) {
   return (
     <div className="carte ombre" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -1041,9 +1455,16 @@ function Resultat({ resultat, onRelancer }: { resultat: ApplyResult; onRelancer:
           </ul>
         </div>
       )}
-      <button className="principal" onClick={onRelancer}>
-        Relancer une analyse
-      </button>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {provider && URL_BOITES[provider] && (
+          <button className="principal" onClick={() => api.openUrl(URL_BOITES[provider])}>
+            Voir le résultat dans ma boîte
+          </button>
+        )}
+        <button className="secondaire" onClick={onRelancer}>
+          Relancer une analyse
+        </button>
+      </div>
     </div>
   )
 }

@@ -6,10 +6,9 @@ import Mascotte from '../Mascotte'
 interface Props {
   boot: AppBootstrap
   onChanged: () => Promise<AppBootstrap>
-  onEditOnboarding: () => void
 }
 
-export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
+export default function Reglages({ boot, onChanged }: Props) {
   const [cle, setCle] = useState('')
   const [modele, setModele] = useState(boot.settings.model)
   const [gId, setGId] = useState(boot.settings.googleClientId)
@@ -71,33 +70,6 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
       </p>
 
       {statut && <div className="succes">{statut}</div>}
-
-      <div className="carte">
-        <h2>Préférences de rangement</h2>
-        {boot.onboarding ? (
-          <p className="aide" style={{ marginBottom: 12 }}>
-            Usage {boot.onboarding.usage} · style{' '}
-            {boot.onboarding.granularity === 'fin' ? 'détaillé (sous-dossiers)' : 'simple'} ·{' '}
-            {boot.onboarding.horizonMonths === 0
-              ? 'toute la boîte'
-              : `${boot.onboarding.horizonMonths} derniers mois`}
-            {boot.onboarding.notes.trim() !== '' && (
-              <>
-                <br />
-                Vos consignes : « {boot.onboarding.notes.trim().slice(0, 140)}
-                {boot.onboarding.notes.trim().length > 140 ? '…' : ''} »
-              </>
-            )}
-          </p>
-        ) : (
-          <p className="aide" style={{ marginBottom: 12 }}>
-            Le questionnaire n’a pas encore été rempli.
-          </p>
-        )}
-        <button className="secondaire" onClick={onEditOnboarding}>
-          Modifier mes réponses
-        </button>
-      </div>
 
       <div className="carte">
         <h2>Classement par IA (Claude)</h2>
@@ -368,6 +340,49 @@ export default function Reglages({ boot, onChanged, onEditOnboarding }: Props) {
             Dernier rangement automatique : {boot.lastAuto}
           </div>
         )}
+      </div>
+
+      <div className="carte">
+        <h2>Notifications</h2>
+        <p className="aide" style={{ marginBottom: 12 }}>
+          Médor vous prévient quand une opération se termine — analyse prête, boîte rangée,
+          « Range tout » fini, passage automatique.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={boot.settings.notifyDone}
+            onChange={(e) =>
+              enregistrer(
+                { notifyDone: e.target.checked },
+                e.target.checked ? 'Notifications activées.' : 'Notifications désactivées.'
+              )
+            }
+          />
+          Me prévenir quand une opération se termine
+        </label>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            opacity: boot.settings.notifyDone ? 1 : 0.5
+          }}
+        >
+          <input
+            type="checkbox"
+            disabled={!boot.settings.notifyDone}
+            checked={boot.settings.notifySound}
+            onChange={(e) =>
+              enregistrer(
+                { notifySound: e.target.checked },
+                e.target.checked ? 'Wouf activé. 🐶' : 'Notifications silencieuses.'
+              )
+            }
+          />
+          Jouer un petit « wouf » 🐶
+        </label>
       </div>
 
       <div className="carte">

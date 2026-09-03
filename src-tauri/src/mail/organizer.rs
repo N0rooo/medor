@@ -3,6 +3,7 @@ use super::utf7;
 use super::ImapSession;
 use crate::types::{ApplyProgress, ApplyResult, ApplySelection, DeleteLabelsResult, RestoreResult};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const MOVE_CHUNK: usize = 200;
 
@@ -12,6 +13,7 @@ pub fn apply(
     session: &mut ImapSession,
     uids: &HashMap<String, GroupUids>,
     selection: &ApplySelection,
+    cancel: &AtomicBool,
     emit: &dyn Fn(ApplyProgress),
 ) -> Result<ApplyResult, String> {
     let mut result = ApplyResult::default();
@@ -59,6 +61,10 @@ pub fn apply(
 
     // 1) Archiver les mails dans leurs libellés.
     for label in &selection.labels {
+        if cancel.load(Ordering::Relaxed) {
+            result.errors.push("Opération annulée en cours de route.".into());
+            return Ok(result);
+        }
         // Rassembler d'abord ce qu'il y a à déplacer : si rien, on ne crée
         // même pas le libellé — pas de dossier vide.
         let mut to_move: Vec<u32> = Vec::new();
@@ -114,6 +120,10 @@ pub fn apply(
         let path = utf7::encode(&native);
 
         for chunk in to_move.chunks(MOVE_CHUNK) {
+            if cancel.load(Ordering::Relaxed) {
+                result.errors.push("Opération annulée en cours de route.".into());
+                return Ok(result);
+            }
             let set = chunk
                 .iter()
                 .map(|u| u.to_string())
@@ -162,6 +172,10 @@ pub fn apply(
             }
         }
         for chunk in to_junk.chunks(MOVE_CHUNK) {
+            if cancel.load(Ordering::Relaxed) {
+                result.errors.push("Opération annulée en cours de route.".into());
+                return Ok(result);
+            }
             let set = chunk
                 .iter()
                 .map(|u| u.to_string())
@@ -202,6 +216,7 @@ const DOSSIERS_PROTEGES: [&str; 15] = [
 pub fn delete_labels(
     session: &mut ImapSession,
     targets: Option<Vec<String>>,
+    emit: &dyn Fn(u32, u32),
 ) -> Result<DeleteLabelsResult, String> {
     let mut result = DeleteLabelsResult::default();
 
@@ -252,7 +267,9 @@ pub fn delete_labels(
     // encore des sous-dossiers sur certains serveurs.
     candidates.sort_by_key(|n| std::cmp::Reverse((n.matches(delimiter.as_str()).count(), n.len())));
 
-    for wire in candidates {
+    let total_candidats = candidates.len() as u32;
+    for (index, wire) in candidates.into_iter().enumerate() {
+        emit(index as u32 + 1, total_candidats);
         match session.delete(&wire) {
             Ok(()) => result.deleted += 1,
             Err(e) => {
@@ -273,6 +290,7 @@ pub fn delete_labels(
 pub fn restore_to_inbox(
     session: &mut ImapSession,
     folders_display: &[String],
+    emit: &dyn Fn(u32, u32),
 ) -> Result<RestoreResult, String> {
     let mut result = RestoreResult::default();
 
@@ -293,7 +311,9 @@ pub fn restore_to_inbox(
     let mut folders: Vec<String> = folders_display.to_vec();
     folders.sort_by_key(|n| std::cmp::Reverse(n.matches('/').count()));
 
-    for display in &folders {
+    let total_dossiers = folders.len() as u32;
+    for (index, display) in folders.iter().enumerate() {
+        emit(index as u32, total_dossiers);
         let wire = utf7::encode(&display.replace('/', &delimiter));
 
         match session.select(&wire) {
@@ -341,6 +361,58 @@ pub fn restore_to_inbox(
     }
 
     Ok(result)
+}
+
+/// Met à la corbeille du compte tous les messages donnés (récupérables
+/// depuis la corbeille — rien n'est détruit immédiatement).
+pub fn trash_uids(
+    session: &mut ImapSession,
+    uids: &[u32],
+    cancel: &AtomicBool,
+    emit: &dyn Fn(u32, u32),
+) -> Result<u32, String> {
+    let names = session
+        .list(Some(""), Some("*"))
+        .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
+    let mut trash: Option<String> = None;
+    for name in names.iter() {
+        let special = name.attributes().iter().any(|a| {
+            matches!(a, imap::types::NameAttribute::Custom(c) if c.eq_ignore_ascii_case("\\Trash"))
+        });
+        if special {
+            trash = Some(name.name().to_string());
+            break;
+        }
+        if trash.is_none() {
+            let lower = super::utf7::decode(name.name()).to_lowercase();
+            if lower.contains("trash") || lower.contains("corbeille") || lower.contains("deleted") {
+                trash = Some(name.name().to_string());
+            }
+        }
+    }
+    let trash = trash.ok_or("Corbeille introuvable sur ce compte.")?;
+    drop(names);
+
+    session
+        .select("INBOX")
+        .map_err(|e| format!("Impossible d'ouvrir la boîte de réception : {e}"))?;
+
+    let total = uids.len() as u32;
+    let mut count: u32 = 0;
+    for chunk in uids.chunks(MOVE_CHUNK) {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(count);
+        }
+        let set = chunk
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        move_uids(session, &set, &trash)?;
+        count += chunk.len() as u32;
+        emit(count, total);
+    }
+    Ok(count)
 }
 
 /// Déplace des messages ; utilise MOVE si le serveur le gère, sinon COPY + suppression.

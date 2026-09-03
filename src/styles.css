@@ -791,6 +791,25 @@ input[type='checkbox'] {
   padding: 12px 12px 4px 34px;
 }
 
+/* Sous-groupes (2e niveau : Sport → Running → …) */
+
+.groupe-libelles.niveau2 {
+  margin: 0 0 10px;
+  background: var(--carte);
+}
+
+.groupe-libelles.niveau2 > .groupe-tete {
+  padding: 11px 14px;
+}
+
+.groupe-libelles.niveau2 > .groupe-tete .nom-libelle {
+  font-size: 14px;
+}
+
+.groupe-libelles.niveau2 .groupe-enfants {
+  padding: 10px 10px 4px 26px;
+}
+
 /* Édition des libellés dans le plan */
 
 .crayon {
@@ -910,6 +929,75 @@ td.mono,
 .mono {
   font-family: var(--police-mono);
   font-size: 12px;
+}
+
+/* Bandeau d'activité non bloquant (bas droite) */
+
+.bandeau-medor {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 340px;
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 14px;
+  box-shadow: var(--ombre);
+  padding: 14px 16px;
+  z-index: 30;
+}
+
+/* Pilule d'activité globale (hors tableau de bord) */
+
+.pilule-activite {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--encre);
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 16px 8px 10px;
+  font-size: 13px;
+  box-shadow: var(--ombre);
+  z-index: 30;
+}
+
+/* Recherche dans les listes */
+
+.champ-recherche {
+  margin-bottom: 12px;
+  max-width: 420px;
+}
+
+/* Aperçu des mails d'un expéditeur */
+
+.apercu-liste {
+  margin: 2px 0 8px 26px;
+  border-left: 2px solid var(--ligne);
+  padding: 6px 0 6px 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.apercu-mail {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 2.5px 0;
+  min-width: 0;
+}
+
+/* Colonnes triables */
+
+th.triable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.triable:hover {
+  color: var(--encre);
 }
 
 /* ------------------------------------------------------------- progression */
@@ -1094,4 +1182,38 @@ details.guide ol {
   padding: 14px;
   margin: 14px 0;
   user-select: all;
+}
+
+/* Popup « rangement automatique en attente » au lancement */
+
+.popup-auto {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 360px;
+  background: var(--carte);
+  border: 1px solid var(--ligne);
+  border-radius: 14px;
+  box-shadow: var(--ombre);
+  padding: 16px;
+  z-index: 31;
+}
+
+.popup-auto-tete {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.popup-auto-tete p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.popup-auto-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }

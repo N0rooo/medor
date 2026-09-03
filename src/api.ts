@@ -4,13 +4,15 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
   AccountConfig,
   AddAccountInput,
+  ApercuMail,
   AppBootstrap,
   ApplyProgress,
   ApplyResult,
   ApplySelection,
+  BoucleProgress,
   DeleteLabelsResult,
+  JournalEntry,
   MsDeviceCodeInfo,
-  OnboardingAnswers,
   Plan,
   RestoreResult,
   ScanProgress,
@@ -21,7 +23,6 @@ import type {
 
 export const api = {
   getState: () => invoke<AppBootstrap>('get_state'),
-  setOnboarding: (answers: OnboardingAnswers) => invoke<void>('set_onboarding', { answers }),
   setSettings: (patch: SettingsPatch) => invoke<AppBootstrap>('set_settings', { patch }),
   setAutostart: (enabled: boolean) => invoke<void>('set_autostart', { enabled }),
 
@@ -32,12 +33,24 @@ export const api = {
   msDeviceStart: () => invoke<MsDeviceCodeInfo>('ms_device_start'),
   msDeviceFinish: () => invoke<AccountConfig>('ms_device_finish'),
   oauthCancel: () => invoke<void>('oauth_cancel'),
+  cancelOperation: (accountId: string) => invoke<void>('cancel_operation', { accountId }),
+  autoPending: () => invoke<boolean>('auto_pending'),
+  autoRunNow: () => invoke<void>('auto_run_now'),
+  autoDefer: () => invoke<void>('auto_defer'),
 
-  scanAccount: (accountId: string, scope: ScanScope) =>
-    invoke<Plan>('scan_account', { accountId, scope }),
+  scanAccount: (accountId: string, scope: ScanScope, fresh: boolean) =>
+    invoke<Plan>('scan_account', { accountId, scope, fresh }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>
     invoke<DeleteLabelsResult>('delete_labels', { accountId, onlyRangemail }),
   restoreInbox: (accountId: string) => invoke<RestoreResult>('restore_inbox', { accountId }),
+  trashSenders: (accountId: string, senderKeys: string[]) =>
+    invoke<number>('trash_senders', { accountId, senderKeys }),
+  sortEverything: (accountId: string, scope: ScanScope, fresh: boolean) =>
+    invoke<ApplyResult>('sort_everything', { accountId, scope, fresh }),
+  getJournal: () => invoke<JournalEntry[]>('get_journal'),
+  undoJournal: (entryId: string) => invoke<RestoreResult>('undo_journal_entry', { entryId }),
+  getSenderPreview: (accountId: string, senderKey: string) =>
+    invoke<ApercuMail[]>('get_sender_preview', { accountId, senderKey }),
   applyPlan: (accountId: string, selection: ApplySelection) =>
     invoke<ApplyResult>('apply_plan', { accountId, selection }),
   unsubscribeOneClick: (accountId: string, senderKey: string) =>
@@ -52,4 +65,8 @@ export function onScanProgress(cb: (p: ScanProgress) => void): Promise<() => voi
 
 export function onApplyProgress(cb: (p: ApplyProgress) => void): Promise<() => void> {
   return listen<ApplyProgress>('apply-progress', (e) => cb(e.payload))
+}
+
+export function onBoucleProgress(cb: (p: BoucleProgress) => void): Promise<() => void> {
+  return listen<BoucleProgress>('boucle-progress', (e) => cb(e.payload))
 }

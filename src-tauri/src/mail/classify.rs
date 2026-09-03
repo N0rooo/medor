@@ -1,11 +1,14 @@
 use super::scanner::ScannedMessage;
-use crate::types::SenderGroup;
+use crate::types::{ApercuMail, SenderGroup};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct GroupUids {
     pub read: Vec<u32>,
     pub all: Vec<u32>,
+    /// Aperçu des mails de l'expéditeur (sujets + dates), pour l'inspection
+    /// avant d'agir. Conservé côté cache seulement.
+    pub apercu: Vec<ApercuMail>,
 }
 
 /// Règles de classement par domaine d'expéditeur.
@@ -24,7 +27,7 @@ const DOMAIN_RULES: &[(&[&str], &str)] = &[
             "digitalocean", "cloudflare", "anthropic", "openai", "jetbrains", "expo.dev",
             "sentry", "linear.app", "railway",
         ],
-        "Dev & outils",
+        "Dev/Outils",
     ),
     (
         &[
@@ -32,7 +35,7 @@ const DOMAIN_RULES: &[(&[&str], &str)] = &[
             "transavia", "uber", "bolt.eu", "blablacar", "trainline", "hotels.com",
             "expedia", "kayak", "abritel", "gites-de-france", "flixbus",
         ],
-        "Voyages & réservations",
+        "Voyages",
     ),
     (
         &[
@@ -40,7 +43,7 @@ const DOMAIN_RULES: &[(&[&str], &str)] = &[
             "vinted", "leboncoin", "ebay", "etsy", "temu", "rakuten", "veepee",
             "laredoute", "decathlon", "ikea", "leroymerlin", "backmarket",
         ],
-        "Shopping & livraisons",
+        "Shopping",
     ),
     (
         &[
@@ -49,7 +52,7 @@ const DOMAIN_RULES: &[(&[&str], &str)] = &[
             "banquepopulaire", "lydia", "sumeria", "qonto", "wise.com", "creditmutuel",
             "hellobank", "shine.fr", "stripe.com", "binance", "coinbase", "tradere",
         ],
-        "Banque & finance",
+        "Finances/Banque",
     ),
     (
         &[
@@ -76,32 +79,32 @@ const SUBJECT_RULES: &[(&[&str], &str)] = &[
             "confirmez votre adresse", "confirm your email", "vérifiez votre",
             "two-factor", "2fa", "authentification",
         ],
-        "Sécurité & comptes",
+        "Sécurité/Comptes",
     ),
     (
         &[
             "facture", "invoice", "reçu de", "receipt", "paiement", "payment",
             "prélèvement", "quittance", "échéance", "relevé", "abonnement", "renouvellement",
         ],
-        "Factures & reçus",
+        "Factures",
     ),
     (
         &[
             "commande", "order", "expédié", "shipped", "livraison", "delivery", "colis",
             "parcel", "suivi de", "tracking",
         ],
-        "Shopping & livraisons",
+        "Shopping",
     ),
     (
         &[
             "réservation", "booking confirm", "billet", "ticket", "itinéraire", "boarding",
             "embarquement", "check-in", "séjour",
         ],
-        "Voyages & réservations",
+        "Voyages",
     ),
     (
         &["virement", "solde", "compte bancaire", "carte bancaire", "remboursement"],
-        "Banque & finance",
+        "Finances/Banque",
     ),
 ];
 
@@ -144,6 +147,9 @@ pub fn build_groups(
                 sample_subjects: Vec::new(),
                 label: String::new(),
                 spam_suspect: false,
+                last_ts: 0,
+                unsubscribed_at: None,
+                still_mailing: false,
             }
         });
 
@@ -184,6 +190,19 @@ pub fn build_groups(
         if msg.seen {
             group_uids.read.push(msg.uid);
         }
+        if group_uids.apercu.len() < 60 {
+            group_uids.apercu.push(ApercuMail {
+                subject: msg.subject.trim().to_string(),
+                date: if msg.date_ts > 0 {
+                    chrono::DateTime::from_timestamp(msg.date_ts, 0)
+                        .map(|d| d.format("%d/%m/%Y").to_string())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                },
+                seen: msg.seen,
+            });
+        }
     }
 
     let mut result: Vec<SenderGroup> = Vec::with_capacity(order.len());
@@ -193,6 +212,7 @@ pub fn build_groups(
         group.is_newsletter = hits > 0 && hits * 2 >= group.total;
         if let Some(ts) = last_ts.get(&key) {
             if *ts > 0 {
+                group.last_ts = *ts;
                 group.last_date = chrono::DateTime::from_timestamp(*ts, 0)
                     .map(|d| d.format("%Y-%m-%d").to_string())
                     .unwrap_or_default();
@@ -257,6 +277,52 @@ fn with_brand(label: &str, group: &SenderGroup, sous_libelles: bool) -> String {
     }
 }
 
+/// Cohérence hiérarchique déterministe : si un thème existe quelque part comme
+/// sous-catégorie (« Sport/Paris sportifs »), aucune RACINE du même nom ne doit
+/// subsister — « Paris sportifs » et « Paris sportifs/Winamax » sont rabattus
+/// sous « Sport/Paris sportifs ». S'applique après l'IA ET après la mémoire.
+pub fn normaliser_hierarchie(groups: &mut [SenderGroup], existing_labels: &[String]) {
+    use std::collections::HashMap as Map;
+    // sous-catégorie (minuscule) -> "Racine/Sous-catégorie" canonique
+    let mut sous_vers_chemin: Map<String, String> = Map::new();
+    let mut racines: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let alimente = |label: &str,
+                    sous: &mut Map<String, String>,
+                    racines: &mut std::collections::HashSet<String>| {
+        let segs: Vec<&str> = label.split('/').collect();
+        racines.insert(segs[0].to_lowercase());
+        if segs.len() >= 2 {
+            sous.entry(segs[1].to_lowercase())
+                .or_insert_with(|| format!("{}/{}", segs[0], segs[1]));
+        }
+    };
+    for label in existing_labels {
+        alimente(label, &mut sous_vers_chemin, &mut racines);
+    }
+    for group in groups.iter() {
+        alimente(&group.label, &mut sous_vers_chemin, &mut racines);
+    }
+
+    for group in groups.iter_mut() {
+        let segs: Vec<String> = group.label.split('/').map(|s| s.to_string()).collect();
+        let racine_min = segs[0].to_lowercase();
+        // La racine du libellé est connue ailleurs comme sous-catégorie ?
+        if let Some(chemin) = sous_vers_chemin.get(&racine_min) {
+            // Ne pas toucher aux libellés déjà bien placés (« Sport/… »).
+            if !chemin.to_lowercase().starts_with(&format!("{racine_min}/"))
+                && chemin.to_lowercase() != racine_min
+            {
+                group.label = match segs.len() {
+                    1 => chemin.clone(),
+                    2 => format!("{}/{}", chemin, segs[1]),
+                    // 3 niveaux : on garde la marque, la sous-catégorie d'origine saute.
+                    _ => format!("{}/{}", chemin, segs[2]),
+                };
+            }
+        }
+    }
+}
+
 pub fn heuristic_label(group: &SenderGroup, sous_libelles: bool) -> String {
     let domain = group.domain.to_lowercase();
     let address = group.address.to_lowercase();
@@ -296,13 +362,13 @@ pub fn heuristic_label(group: &SenderGroup, sous_libelles: bool) -> String {
     {
         return "Notifications".to_string();
     }
-    "À trier".to_string()
+    // Pas de « À trier » : le solde va dans Autres, rangé par marque si possible.
+    with_brand("Autres", group, sous_libelles)
 }
 
 fn spam_suspect(group: &SenderGroup) -> bool {
-    if group.is_newsletter && group.read == 0 && group.total >= 4 {
-        return true;
-    }
+    // « Quasi jamais lu » : au moins 4 non-lus et un taux de lecture <= 10 %.
+    let quasi_jamais_lu = group.unread >= 4 && group.read * 10 <= group.total;
     let hits = group
         .sample_subjects
         .iter()
@@ -311,5 +377,5 @@ fn spam_suspect(group: &SenderGroup) -> bool {
             SPAM_SUBJECT_HINTS.iter().any(|h| lower.contains(h))
         })
         .count();
-    hits >= 2 && group.read == 0
+    (quasi_jamais_lu && (group.is_newsletter || hits >= 1)) || (hits >= 2 && group.read == 0)
 }

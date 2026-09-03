@@ -7,3 +7,6 @@ app-icon.svg.png
 
 # Identifiants OAuth locaux — ne jamais versionner
 src-tauri/oauth.local.json
+
+# Clé privée de signature des mises à jour — ne jamais versionner
+src-tauri/updater.local.key

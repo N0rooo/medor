@@ -1,17 +1,22 @@
-use crate::types::{OnboardingAnswers, SenderGroup};
+use crate::types::SenderGroup;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
-const BATCH_SIZE: usize = 100;
+const BATCH_SIZE: usize = 150;
 /// Nombre maximal d'expéditeurs envoyés à l'IA (les plus volumineux d'abord).
-const MAX_SENDERS: usize = 600;
+const MAX_SENDERS: usize = 1500;
 const CLI_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Racines de BASE, suggérées à l'IA. Elle peut en créer d'autres si un vrai
+/// thème le mérite — mais jamais deux racines pour le même thème.
+pub const RACINES: &str = "Finances, Factures, Shopping, Voyages, Sport, Santé, Loisirs, Réseaux sociaux, Newsletters, Travail, Dev, Éducation, Administratif, Assurances, Immobilier, Sécurité, Famille, Autres";
 
 /// Source d'authentification pour le classement IA.
 pub enum AiAuth {
@@ -55,10 +60,20 @@ pub fn find_claude_cli() -> Option<PathBuf> {
 }
 
 /// Lance `claude -p` (mode silencieux) avec le prompt sur stdin et renvoie le
-/// texte de la réponse.
-fn run_claude_cli(bin: &PathBuf, prompt: &str) -> Result<String, String> {
+/// texte de la réponse. Le modèle des Réglages est transmis au CLI.
+fn run_claude_cli(
+    bin: &PathBuf,
+    model: &str,
+    prompt: &str,
+    cancel: &AtomicBool,
+) -> Result<String, String> {
+    let mut args = vec!["-p", "--output-format", "json"];
+    if !model.trim().is_empty() {
+        args.push("--model");
+        args.push(model);
+    }
     let mut child = Command::new(bin)
-        .args(["-p", "--output-format", "json"])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -77,6 +92,10 @@ fn run_claude_cli(bin: &PathBuf, prompt: &str) -> Result<String, String> {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(status) => break status,
             None => {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = child.kill();
+                    return Err("Opération annulée.".into());
+                }
                 if started.elapsed() > CLI_TIMEOUT {
                     let _ = child.kill();
                     return Err("Claude Code n'a pas répondu dans le délai imparti.".into());
@@ -115,9 +134,9 @@ fn run_claude_cli(bin: &PathBuf, prompt: &str) -> Result<String, String> {
 pub fn ai_label_senders(
     auth: &AiAuth,
     model: &str,
-    onboarding: &OnboardingAnswers,
     existing_labels: &[String],
     senders: &[SenderGroup],
+    cancel: &AtomicBool,
     emit: &(dyn Fn(u32, u32) + Sync),
 ) -> Result<HashMap<String, String>, String> {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -127,7 +146,7 @@ pub fn ai_label_senders(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let system = build_system_prompt(onboarding, existing_labels);
+    let system = build_system_prompt(existing_labels);
     let considered = &senders[..senders.len().min(MAX_SENDERS)];
     let batches: Vec<&[SenderGroup]> = considered.chunks(BATCH_SIZE).collect();
     // +1 : la passe d'harmonisation finale.
@@ -143,7 +162,10 @@ pub fn ai_label_senders(
                 let system = &system;
                 let done = &done;
                 scope.spawn(move || {
-                    let res = classify_batch(auth, client, model, system, batch);
+                    if cancel.load(Ordering::Relaxed) {
+                        return Err("Opération annulée.".into());
+                    }
+                    let res = classify_batch(auth, client, model, system, batch, cancel);
                     let fini = done.fetch_add(1, Ordering::Relaxed) + 1;
                     emit(fini, total);
                     res
@@ -168,12 +190,15 @@ pub fn ai_label_senders(
             }
         }
     }
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("Opération annulée.".into());
+    }
     if labels.is_empty() {
         return Err(premiere_erreur.unwrap_or_else(|| "aucune réponse exploitable de l'IA".into()));
     }
 
     // Harmonisation : « Sport », « Running » et « Sport & Running » -> un seul libellé.
-    if let Ok(mapping) = harmonize(auth, &client, model, existing_labels, &labels) {
+    if let Ok(mapping) = harmonize(auth, &client, model, existing_labels, &labels, cancel) {
         for valeur in labels.values_mut() {
             if let Some(nouveau) = mapping.get(valeur.as_str()) {
                 *valeur = nouveau.clone();
@@ -198,6 +223,7 @@ fn classify_batch(
     model: &str,
     system: &str,
     batch: &[SenderGroup],
+    cancel: &AtomicBool,
 ) -> Result<HashMap<String, String>, String> {
     let payload: Vec<Value> = batch
         .iter()
@@ -216,9 +242,12 @@ fn classify_batch(
     let user_content = serde_json::to_string(&payload).unwrap_or_default();
     let text = match auth {
         AiAuth::ApiKey(key) => request_via_api(client, key, model, system, &user_content)?,
-        AiAuth::ClaudeCli(bin) => {
-            run_claude_cli(bin, &format!("{system}\n\nVoici les expéditeurs :\n{user_content}"))?
-        }
+        AiAuth::ClaudeCli(bin) => run_claude_cli(
+            bin,
+            model,
+            &format!("{system}\n\nVoici les expéditeurs :\n{user_content}"),
+            cancel,
+        )?,
     };
 
     let parsed = extract_json_object(&text)
@@ -245,11 +274,12 @@ fn harmonize(
     model: &str,
     existing_labels: &[String],
     labels: &HashMap<String, String>,
+    cancel: &AtomicBool,
 ) -> Result<HashMap<String, String>, String> {
     let mut distincts: Vec<String> = labels.values().cloned().collect();
     distincts.sort();
     distincts.dedup();
-    if distincts.len() < 8 {
+    if distincts.len() < 2 {
         return Ok(HashMap::new());
     }
 
@@ -259,9 +289,15 @@ fn harmonize(
         existing_labels.join(" · ")
     };
     let prompt = format!(
-        "Voici des libellés de classement d'une boîte mail, créés par lots indépendants. Certains sont des doublons ou quasi-doublons thématiques (ex. « Sport », « Running » et « Sport & Running » doivent devenir un seul libellé).\n\
-        Réponds UNIQUEMENT avec un objet JSON {{\"ancien\": \"nouveau\", ...}} listant les fusions/renommages — n'inclus QUE les libellés qui changent.\n\
-        Règles : ne touche jamais aux libellés déjà existants dans la boîte ({existants}) — fusionne plutôt les nouveaux vers eux quand le thème correspond ; vise une taxonomie compacte (une douzaine de racines maximum) ; garde le format « Racine » ou « Racine/Sous-libellé », en français.\n\n\
+        "Voici des libellés de classement d'une boîte mail, créés par lots indépendants.\n\
+        Racines de base : {RACINES}. D'autres racines sont permises, mais UNE SEULE racine par thème.\n\
+        Ta mission : rendre la taxonomie parfaitement cohérente.\n\
+        - Fusionne toute racine variante ou synonyme vers une racine canonique unique, simple, sans « & » ni « et » (« Sport & running », « Sport et courses », « Sport & fitness » → sous-catégories de « Sport » : « Sport/Running », « Sport/Fitness »).\n\
+        - Rabats les racines proches d'une racine de base vers elle (« Banque » → « Finances/Banque », « Cinéma » → « Loisirs/Cinéma »).\n\
+        - Fusionne les sous-catégories quasi-identiques (Running/Course/Courses → Running).\n\
+        - JAMAIS un même thème à deux niveaux différents : si « Sport/Paris sportifs » existe, aucune racine « Paris sportifs » ne doit subsister — rabats-la (« Paris sportifs » → « Sport/Paris sportifs », « Paris sportifs/Winamax » → « Sport/Paris sportifs/Winamax »).\n\
+        Réponds UNIQUEMENT avec un objet JSON {{\"ancien\": \"nouveau\", ...}} listant les corrections — n'inclus QUE les libellés qui changent. Format cible : « Racine », « Racine/Sous-catégorie » ou « Racine/Sous-catégorie/Marque », en français.\n\
+        Libellés existants de la boîte à laisser tels quels s'ils apparaissent : {existants}.\n\n\
         Libellés à examiner : {}",
         distincts.join(" · ")
     );
@@ -274,7 +310,7 @@ fn harmonize(
             "Tu harmonises des taxonomies de libellés de boîtes mail.",
             &prompt,
         )?,
-        AiAuth::ClaudeCli(bin) => run_claude_cli(bin, &prompt)?,
+        AiAuth::ClaudeCli(bin) => run_claude_cli(bin, model, &prompt, cancel)?,
     };
 
     let mut mapping = HashMap::new();
@@ -353,53 +389,31 @@ fn request_via_api(
         .unwrap_or_default())
 }
 
-fn build_system_prompt(o: &OnboardingAnswers, existing_labels: &[String]) -> String {
-    let categories = if o.categories.is_empty() {
-        "Invente toi-même les catégories de premier niveau les plus utiles pour CETTE boîte (une dizaine maximum), en t'inspirant au besoin des classiques : Factures & reçus, Banque & finance, Shopping & livraisons, Voyages & réservations, Réseaux sociaux, Newsletters, Sécurité & comptes, Administratif, Travail.".to_string()
-    } else {
-        format!(
-            "Utilise en priorité ces catégories comme premier niveau : {}.",
-            o.categories.join(", ")
-        )
-    };
-    let granularity = if o.granularity == "fin" {
-        "Mets presque toujours un sous-libellé au format « Catégorie/Service » (ex. « Voyages & réservations/SNCF », « Dev & outils/GitHub », « Newsletters/Le Monde ») : dès qu'un expéditeur correspond à un service ou une marque identifiable, il mérite son sous-dossier. Reste au premier niveau seulement pour les expéditeurs trop rares ou inclassables."
-    } else {
-        "Reste au premier niveau : un seul libellé par expéditeur, sans sous-libellé."
-    };
-    let usage = match o.usage.as_str() {
-        "pro" => "professionnel",
-        "perso" => "personnel",
-        _ => "mixte (personnel et professionnel)",
-    };
+fn build_system_prompt(existing_labels: &[String]) -> String {
     let existants = if existing_labels.is_empty() {
         String::new()
     } else {
         format!(
-            "\nLibellés DÉJÀ existants dans cette boîte — réutilise-les en priorité, avec leur orthographe exacte, dès qu'ils conviennent (ne crée pas de doublon proche) : {}",
+            "\nLibellés DÉJÀ existants dans cette boîte — quand ils respectent le format ci-dessus, réutilise-les à l'orthographe exacte plutôt que de créer un doublon : {}",
             existing_labels.join(" · ")
-        )
-    };
-    let notes = if o.notes.trim().is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nConsignes personnelles de l'utilisateur — à respecter en PRIORITÉ sur toutes les autres règles, y compris en créant les libellés spécifiques qu'elles demandent :\n{}",
-            o.notes.trim()
         )
     };
 
     format!(
         "Tu es le moteur de classement de Médor, une application qui range les boîtes mail.\n\
-        On te fournit un tableau JSON d'expéditeurs. Pour CHAQUE expéditeur, choisis le libellé de classement le plus utile.\n\n\
+        On te fournit un tableau JSON d'expéditeurs. Pour CHAQUE expéditeur, choisis son libellé de classement.\n\n\
+        FORMAT OBLIGATOIRE — hiérarchie stricte à 3 niveaux maximum : « Racine », « Racine/Sous-catégorie » ou « Racine/Sous-catégorie/Marque ».\n\
+        RACINES DE BASE (utilise-les en priorité) : {RACINES}.\n\
+        Tu PEUX créer une autre racine si un thème important n'y rentre vraiment pas (ex. Gaming, Musique, Crypto) — mais JAMAIS deux racines pour un même thème : pas de variantes, pas de synonymes, pas de « & » ni de « et » dans une racine (« Sport & running » et « Sport et courses » sont INTERDITS : tout le sport va sous « Sport », décliné en sous-catégories).\n\
+        - Sous-catégorie : un thème court et générique (Banque, Trading, Paiements, Running, Football, Fitness, Cinéma, Musique, Jeux, Livraisons, Trains, Avion, Hôtels, Téléphonie, Énergie, Comptes, Outils…).\n\
+        - Marque : le nom du service/de l'entreprise si identifiable (BoursoBank, SNCF, Nike, Pathé, GitHub…).\n\
+        Exemples : Finances/Banque/BoursoBank · Sport/Running/Adidas · Sport/Football · Voyages/Trains/SNCF · Loisirs/Cinéma/Pathé · Dev/Outils/GitHub · Newsletters/Tech/Medium.\n\n\
         Règles :\n\
         - Réponds UNIQUEMENT avec un objet JSON, sans aucun texte autour : {{\"<cle>\": \"<libellé>\", ...}} — une entrée par clé fournie, exactement les clés reçues.\n\
-        - Libellés en français, courts (1 à 3 mots), sans emoji.\n\
-        - {categories}\n\
-        - {granularity}\n\
-        - « Newsletters » pour les lettres d'information sans meilleure catégorie ; « Notifications » pour les mails automatiques sans valeur de classement.\n\
-        - Ne dépasse pas 25 libellés de premier niveau distincts au total.\n\n\
-        Profil : usage {usage} de cette boîte.{existants}{notes}"
+        - Libellés en français, sans emoji.\n\
+        - COHÉRENCE ABSOLUE : un même thème va TOUJOURS sous la même racine et la même sous-catégorie. Tout ce qui touche au sport va sous « Sport », jamais sous une variante.\n\
+        - « Newsletters » (racine) pour les lettres d'information sans meilleur thème.\n\
+        - « Autres » est un DERNIER RECOURS rarissime : cherche toujours un vrai thème d'abord — ton but est que tout soit rangé.{existants}"
     )
 }
 
@@ -421,7 +435,7 @@ fn sanitize_label(label: &str) -> String {
         .split('/')
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
-        .take(2)
+        .take(3)
         .collect();
     parts.join("/")
 }

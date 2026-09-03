@@ -67,6 +67,10 @@ pub struct Settings {
     pub auto_junk: bool,
     /// Nombre maximal de mails par analyse (0 = sans limite).
     pub scan_limit: u32,
+    /// Notification quand une opération se termine.
+    pub notify_done: bool,
+    /// Jouer un son avec la notification.
+    pub notify_sound: bool,
 }
 
 impl Default for Settings {
@@ -82,6 +86,8 @@ impl Default for Settings {
             auto_scope: "lus".into(),
             auto_junk: false,
             scan_limit: 3000,
+            notify_done: true,
+            notify_sound: true,
         }
     }
 }
@@ -99,6 +105,15 @@ pub struct Config {
     pub last_auto_run: i64,
     /// Résumé lisible du dernier rangement automatique.
     pub last_auto_result: String,
+    /// Mémoire de Médor : expéditeur -> libellé appliqué. Alimentée à chaque
+    /// rangement validé ; prioritaire sur l'IA aux analyses suivantes.
+    pub sender_rules: HashMap<String, String>,
+    /// Désabonnements demandés : expéditeur -> timestamp de la demande.
+    pub unsubscribed: HashMap<String, i64>,
+    /// Journal des actions de Médor (les 200 dernières).
+    pub journal: Vec<JournalEntry>,
+    /// Compteur de fierté : mails rangés depuis l'adoption.
+    pub stats_archived_total: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -139,6 +154,38 @@ pub struct SenderGroup {
     pub sample_subjects: Vec<String>,
     pub label: String,
     pub spam_suspect: bool,
+    /// Timestamp du mail le plus récent.
+    pub last_ts: i64,
+    /// Désabonnement demandé via Médor à cette date (timestamp s).
+    pub unsubscribed_at: Option<i64>,
+    /// Continue d'écrire malgré un désabonnement demandé il y a plus de 3 jours.
+    pub still_mailing: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApercuMail {
+    pub subject: String,
+    pub date: String,
+    pub seen: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct JournalEntry {
+    pub id: String,
+    pub account_id: String,
+    pub account_email: String,
+    pub ts: i64,
+    /// rangement | auto | corbeille | restauration
+    pub kind: String,
+    pub archived: u32,
+    pub junked: u32,
+    pub trashed: u32,
+    pub restored: u32,
+    pub labels_created: u32,
+    /// Libellés touchés — permet « vider ces libellés vers la boîte de réception ».
+    pub labels: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -196,6 +243,13 @@ pub struct ApplySelection {
     /// Gmail). Appliquée seulement sur les comptes Gmail connectés en OAuth.
     #[serde(default)]
     pub label_colors: HashMap<String, String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BoucleProgress {
+    pub passe: u32,
+    pub archives_cumules: u32,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -268,6 +322,8 @@ pub struct AppBootstrap {
     pub last_auto: Option<String>,
     /// Médor se lance-t-il à l'ouverture de session ?
     pub autostart_enabled: bool,
+    /// Mails rangés depuis l'adoption (tous comptes confondus).
+    pub total_archived: u64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -285,4 +341,6 @@ pub struct SettingsPatch {
     pub auto_scope: Option<String>,
     pub auto_junk: Option<bool>,
     pub scan_limit: Option<u32>,
+    pub notify_done: Option<bool>,
+    pub notify_sound: Option<bool>,
 }

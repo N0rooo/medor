@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Médor",
-  "mainBinaryName": "Médor",
-  "version": "0.1.0",
+  "mainBinaryName": "Medor",
+  "version": "0.2.0",
   "identifier": "dev.aubert.rangemail",
   "build": {
     "beforeDevCommand": "npm run dev:vite",
@@ -20,7 +20,10 @@
         "minHeight": 640,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 24 }
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        }
       }
     ],
     "security": {
@@ -30,12 +33,27 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "sounds/woof.wav"
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: GATEAD (HSAFDUBFHM)"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEyREM2NkEzQ0M0NzY3MEYKUldRUFowZk1vMmJjb2d1QzF2NHFpT0xDcUJvNFdCU1Jscmg3cFhzK0VVSlEzekV2ajNWam5IVFAK",
+      "endpoints": [
+        "https://github.com/N0rooo/medor/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

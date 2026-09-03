@@ -39,6 +39,10 @@ export interface Settings {
   autoJunk: boolean
   /** Nombre maximal de mails par analyse (0 = sans limite). */
   scanLimit: number
+  /** Notification quand une opération se termine. */
+  notifyDone: boolean
+  /** Jouer un son avec la notification. */
+  notifySound: boolean
 }
 
 export interface AppBootstrap {
@@ -56,6 +60,8 @@ export interface AppBootstrap {
   lastAuto?: string | null
   /** Médor se lance à l'ouverture de session. */
   autostartEnabled: boolean
+  /** Mails rangés depuis l'adoption. */
+  totalArchived: number
 }
 
 export interface SenderGroup {
@@ -74,6 +80,34 @@ export interface SenderGroup {
   sampleSubjects: string[]
   label: string
   spamSuspect: boolean
+  lastTs: number
+  unsubscribedAt?: number | null
+  stillMailing: boolean
+}
+
+export interface ApercuMail {
+  subject: string
+  date: string
+  seen: boolean
+}
+
+export interface JournalEntry {
+  id: string
+  accountId: string
+  accountEmail: string
+  ts: number
+  kind: 'rangement' | 'auto' | 'corbeille' | 'restauration'
+  archived: number
+  junked: number
+  trashed: number
+  restored: number
+  labelsCreated: number
+  labels: string[]
+}
+
+export interface BoucleProgress {
+  passe: number
+  archivesCumules: number
 }
 
 export interface PlanLabel {
@@ -168,6 +202,8 @@ export interface SettingsPatch {
   autoScope?: string
   autoJunk?: boolean
   scanLimit?: number
+  notifyDone?: boolean
+  notifySound?: boolean
 }
 
 export const DEFAULT_CATEGORIES = [

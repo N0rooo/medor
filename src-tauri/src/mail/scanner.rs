@@ -1,5 +1,6 @@
 use super::ImapSession;
 use crate::types::ScanProgress;
+use std::sync::atomic::{AtomicBool, Ordering};
 use mailparse::MailHeaderMap;
 
 const FETCH_CHUNK: usize = 300;
@@ -25,6 +26,7 @@ pub fn scan_inbox(
     horizon_months: u32,
     scope: &str,
     max_messages: u32,
+    cancel: &AtomicBool,
     emit: &dyn Fn(ScanProgress),
 ) -> Result<(Vec<ScannedMessage>, u32), String> {
     let mailbox = session
@@ -75,6 +77,9 @@ pub fn scan_inbox(
     let mut messages: Vec<ScannedMessage> = Vec::with_capacity(uids.len());
 
     for chunk in uids.chunks(FETCH_CHUNK) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Opération annulée.".into());
+        }
         let set = chunk
             .iter()
             .map(|u| u.to_string())

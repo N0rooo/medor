@@ -20,43 +20,77 @@ pub struct PendingDevice {
     pub client_id: String,
 }
 
+/// Opération en cours sur un compte : nature + drapeau d'annulation.
+pub struct OpEnCours {
+    pub kind: String,
+    pub cancel: Arc<AtomicBool>,
+}
+
 #[derive(Default)]
 pub struct AppState {
     pub scans: Mutex<HashMap<String, ScanCache>>,
     pub pending_device: Mutex<Option<PendingDevice>>,
     /// Drapeau d'annulation du flux OAuth en cours (Google ou Microsoft).
     pub oauth_cancel: Mutex<Option<Arc<AtomicBool>>>,
-    /// Comptes sur lesquels une opération (analyse, rangement) est en cours —
-    /// évite qu'un rangement automatique chevauche une action manuelle.
-    pub busy: Mutex<HashSet<String>>,
+    /// Opérations en cours par compte — évite les chevauchements et permet
+    /// l'annulation depuis l'interface.
+    pub ops: Mutex<HashMap<String, OpEnCours>>,
 }
 
 /// Verrou d'occupation d'un compte, relâché automatiquement en fin de portée.
+/// Porte le drapeau d'annulation que les boucles longues consultent.
 struct BusyGuard {
     app: AppHandle,
     id: String,
+    cancel: Arc<AtomicBool>,
 }
 
 impl BusyGuard {
-    fn try_new(app: &AppHandle, id: &str) -> Option<Self> {
-        let state = app.state::<AppState>();
-        let mut busy = state.busy.lock().unwrap();
-        if busy.contains(id) {
-            return None;
-        }
-        busy.insert(id.to_string());
-        Some(Self {
-            app: app.clone(),
-            id: id.to_string(),
-        })
+    fn annule(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
     }
+}
+
+/// Prend le verrou du compte, ou explique quelle opération occupe déjà la place.
+fn prendre_verrou(app: &AppHandle, id: &str, kind: &str) -> Result<BusyGuard, String> {
+    let state = app.state::<AppState>();
+    let mut ops = state.ops.lock().unwrap();
+    if let Some(existante) = ops.get(id) {
+        return Err(format!(
+            "Une opération est déjà en cours sur ce compte ({}). Vous pouvez l'annuler depuis le bandeau d'activité.",
+            existante.kind
+        ));
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    ops.insert(
+        id.to_string(),
+        OpEnCours {
+            kind: kind.to_string(),
+            cancel: cancel.clone(),
+        },
+    );
+    Ok(BusyGuard {
+        app: app.clone(),
+        id: id.to_string(),
+        cancel,
+    })
 }
 
 impl Drop for BusyGuard {
     fn drop(&mut self) {
         let state = self.app.state::<AppState>();
-        state.busy.lock().unwrap().remove(&self.id);
+        state.ops.lock().unwrap().remove(&self.id);
     }
+}
+
+/// Annule l'opération en cours sur un compte (effet entre deux paquets).
+#[tauri::command]
+pub async fn cancel_operation(app: AppHandle, account_id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(op) = state.ops.lock().unwrap().get(&account_id) {
+        op.cancel.store(true, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 /// Prépare un nouveau drapeau d'annulation, en annulant l'éventuel flux précédent.
@@ -93,6 +127,34 @@ fn emit_scan(app: &AppHandle, progress: ScanProgress) {
     let _ = app.emit("scan-progress", progress);
 }
 
+/// Notification de fin d'opération, selon les réglages — avec, en option,
+/// le petit « wouf » embarqué dans l'app.
+fn notifier(app: &AppHandle, corps: &str) {
+    let cfg = store::load_config(app);
+    if !cfg.settings.notify_done {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title("Médor 🐶").body(corps).show();
+    if cfg.settings.notify_sound {
+        if let Ok(chemin) = app
+            .path()
+            .resolve("sounds/woof.wav", tauri::path::BaseDirectory::Resource)
+        {
+            let _ = std::process::Command::new("afplay").arg(chemin).spawn();
+        }
+    }
+}
+
+/// Ajoute une entrée au journal de Médor (les 200 dernières sont gardées).
+fn journal_push(cfg: &mut Config, entry: JournalEntry) {
+    cfg.journal.push(entry);
+    let len = cfg.journal.len();
+    if len > 200 {
+        cfg.journal.drain(0..len - 200);
+    }
+}
+
 // ---------------------------------------------------------------- Bootstrap
 
 #[tauri::command]
@@ -118,15 +180,8 @@ pub async fn get_state(app: AppHandle) -> Result<AppBootstrap, String> {
             use tauri_plugin_autostart::ManagerExt;
             app.autolaunch().is_enabled().unwrap_or(false)
         },
+        total_archived: cfg.stats_archived_total,
     })
-}
-
-#[tauri::command]
-pub async fn set_onboarding(app: AppHandle, answers: OnboardingAnswers) -> Result<(), String> {
-    let mut cfg = store::load_config(&app);
-    cfg.onboarding = Some(answers);
-    store::save_config(&app, &cfg);
-    Ok(())
 }
 
 #[tauri::command]
@@ -165,6 +220,12 @@ pub async fn set_settings(app: AppHandle, patch: SettingsPatch) -> Result<AppBoo
     }
     if let Some(v) = patch.scan_limit {
         cfg.settings.scan_limit = v;
+    }
+    if let Some(v) = patch.notify_done {
+        cfg.settings.notify_done = v;
+    }
+    if let Some(v) = patch.notify_sound {
+        cfg.settings.notify_sound = v;
     }
     store::save_config(&app, &cfg);
     if let Some(key) = patch.anthropic_key {
@@ -370,15 +431,30 @@ pub async fn oauth_cancel(app: AppHandle) -> Result<(), String> {
 // ---------------------------------------------------------------- Scan & plan
 
 #[tauri::command]
-pub async fn scan_account(app: AppHandle, account_id: String, scope: String) -> Result<Plan, String> {
-    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, account_id, scope))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn scan_account(
+    app: AppHandle,
+    account_id: String,
+    scope: String,
+    fresh: bool,
+) -> Result<Plan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let plan = scan_blocking(app.clone(), account_id, scope, fresh)?;
+        notifier(
+            &app,
+            &format!(
+                "Analyse terminée : {} mails, {} expéditeurs — le plan est prêt.",
+                plan.scanned, plan.senders.len()
+            ),
+        );
+        Ok(plan)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Plan, String> {
-    let _busy = BusyGuard::try_new(&app, &account_id)
-        .ok_or("Une opération est déjà en cours sur ce compte.")?;
+/// `fresh` : ignorer les libellés existants — l'IA repense l'organisation de zéro.
+fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool) -> Result<Plan, String> {
+    let busy = prendre_verrou(&app, &account_id, "analyse")?;
     let cfg = store::load_config(&app);
     let account = cfg
         .accounts
@@ -386,7 +462,6 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
         .find(|a| a.id == account_id)
         .ok_or("Compte introuvable.")?
         .clone();
-    let onboarding = cfg.onboarding.clone().unwrap_or_default();
 
     emit_scan(
         &app,
@@ -424,11 +499,13 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
         .unwrap_or_default();
 
     let emit_progress = |p: ScanProgress| emit_scan(&app, p);
+    // Pas de fenêtre temporelle : c'est la limite de volume qui borne l'analyse.
     let (messages, inbox_total) = scanner::scan_inbox(
         &mut session,
-        onboarding.horizon_months,
+        0,
         &scope,
         cfg.settings.scan_limit,
+        &busy.cancel,
         &emit_progress,
     )?;
     let _ = session.logout();
@@ -442,7 +519,27 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
             note: None,
         },
     );
-    let (mut groups, uids) = build_groups(&messages, onboarding.granularity == "fin");
+    let (mut groups, uids) = build_groups(&messages, true);
+
+    // Mémoire de Médor : les expéditeurs déjà rangés gardent leur libellé,
+    // et l'IA ne travaille que sur les nouveaux.
+    let mut regles_appliquees: HashSet<String> = HashSet::new();
+    if !fresh {
+        for group in groups.iter_mut() {
+            if let Some(libelle) = cfg.sender_rules.get(&group.key) {
+                group.label = libelle.clone();
+                regles_appliquees.insert(group.key.clone());
+            }
+        }
+    }
+
+    // Suivi des désabonnements : signale ceux qui écrivent encore.
+    for group in groups.iter_mut() {
+        if let Some(ts) = cfg.unsubscribed.get(&group.key) {
+            group.unsubscribed_at = Some(*ts);
+            group.still_mailing = group.last_ts > ts + 3 * 86400;
+        }
+    }
 
     // Authentification IA : clé API si renseignée, sinon la session Claude Code
     // de la machine (abonnement Claude), sinon classement heuristique seul.
@@ -475,26 +572,41 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
                 },
             );
         };
-        match ai::ai_label_senders(
-            &auth,
-            &cfg.settings.model,
-            &onboarding,
-            &existing_labels,
-            &groups,
-            &emit_ai,
-        ) {
-            Ok(labels) => {
-                for group in groups.iter_mut() {
-                    if let Some(label) = labels.get(&group.key) {
-                        group.label = label.clone();
+        // En mode « repartir de zéro », l'IA ne voit pas les libellés existants.
+        let labels_pour_ia: &[String] = if fresh { &[] } else { &existing_labels };
+        let groupes_pour_ia: Vec<SenderGroup> = groups
+            .iter()
+            .filter(|g| !regles_appliquees.contains(&g.key))
+            .cloned()
+            .collect();
+        if groupes_pour_ia.is_empty() {
+            // Tout est couvert par la mémoire de Médor : rien à demander à l'IA.
+            generated_by = "ia".into();
+        } else {
+            match ai::ai_label_senders(
+                &auth,
+                &cfg.settings.model,
+                labels_pour_ia,
+                &groupes_pour_ia,
+                &busy.cancel,
+                &emit_ai,
+            ) {
+                Ok(labels) => {
+                    for group in groups.iter_mut() {
+                        if regles_appliquees.contains(&group.key) {
+                            continue;
+                        }
+                        if let Some(label) = labels.get(&group.key) {
+                            group.label = label.clone();
+                        }
                     }
+                    generated_by = "ia".into();
                 }
-                generated_by = "ia".into();
-            }
-            Err(e) => {
-                ai_note = Some(format!(
-                    "Classement heuristique utilisé (IA indisponible : {e})"
-                ));
+                Err(e) => {
+                    ai_note = Some(format!(
+                        "Classement heuristique utilisé (IA indisponible : {e})"
+                    ));
+                }
             }
         }
     } else {
@@ -504,6 +616,13 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String) -> Result<Pl
         );
     }
 
+    // Cohérence hiérarchique finale, sur TOUT (IA, mémoire, heuristique) :
+    // une racine qui existe ailleurs comme sous-catégorie y est rabattue.
+    crate::mail::classify::normaliser_hierarchie(&mut groups, &existing_labels);
+
+    if busy.annule() {
+        return Err("Opération annulée.".into());
+    }
     let plan = build_plan(
         &account_id,
         messages.len() as u32,
@@ -586,18 +705,22 @@ pub async fn apply_plan(
     account_id: String,
     selection: ApplySelection,
 ) -> Result<ApplyResult, String> {
-    tauri::async_runtime::spawn_blocking(move || apply_blocking(app, account_id, selection))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let res = apply_blocking(app.clone(), account_id, selection, "rangement".into())?;
+        notifier(&app, &format!("Boîte rangée : {} mails archivés.", res.archived));
+        Ok(res)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn apply_blocking(
     app: AppHandle,
     account_id: String,
     selection: ApplySelection,
+    kind: String,
 ) -> Result<ApplyResult, String> {
-    let _busy = BusyGuard::try_new(&app, &account_id)
-        .ok_or("Une opération est déjà en cours sur ce compte.")?;
+    let busy = prendre_verrou(&app, &account_id, "rangement")?;
     {
         let cfg = store::load_config(&app);
         let account = cfg
@@ -620,7 +743,7 @@ fn apply_blocking(
         let emit = |p: ApplyProgress| {
             let _ = app.emit("apply-progress", p);
         };
-        let mut result = organizer::apply(&mut session, &uids, &selection, &emit)?;
+        let mut result = organizer::apply(&mut session, &uids, &selection, &busy.cancel, &emit)?;
         let _ = session.logout();
 
         // Couleurs des libellés : possible uniquement via l'API Gmail (OAuth).
@@ -654,6 +777,33 @@ fn apply_blocking(
                 }
             }
         }
+
+        // La mémoire de Médor : chaque expéditeur rangé garde son libellé
+        // pour toutes les analyses futures.
+        for label in &selection.labels {
+            for key in &label.sender_keys {
+                cfg.sender_rules.insert(key.clone(), label.name.clone());
+            }
+        }
+
+        // Journal + compteur de fierté.
+        cfg.stats_archived_total += result.archived as u64;
+        journal_push(
+            &mut cfg,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind,
+                archived: result.archived,
+                junked: result.junked,
+                trashed: 0,
+                restored: 0,
+                labels_created: result.labels_created,
+                labels: selection.labels.iter().map(|l| l.name.clone()).collect(),
+            },
+        );
         store::save_config(&app, &cfg);
 
         // Le plan ne correspond plus à l'état de la boîte : on invalide le cache.
@@ -699,7 +849,13 @@ pub async fn delete_labels(
         };
 
         let mut session = crate::mail::open_session(&app, &account)?;
-        let result = organizer::delete_labels(&mut session, targets)?;
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress { done, total, label: "Nettoyage des libellés".into() },
+            );
+        };
+        let result = organizer::delete_labels(&mut session, targets, &emit)?;
         let _ = session.logout();
 
         if only_rangemail {
@@ -722,8 +878,15 @@ pub async fn delete_labels(
 /// Boucle de fond : vérifie chaque minute si un rangement automatique est dû,
 /// puis analyse et range chaque compte. L'app doit rester ouverte.
 pub fn auto_sort_loop(app: AppHandle) {
+    // Délai de grâce : au lancement, c'est la popup de l'interface qui décide
+    // (« Lancer maintenant » / « Plus tard ») — la boucle ne rattrape rien
+    // dans le dos de l'utilisateur pendant les 10 premières minutes.
+    let demarrage = std::time::Instant::now();
     loop {
         std::thread::sleep(Duration::from_secs(60));
+        if demarrage.elapsed() < Duration::from_secs(600) {
+            continue;
+        }
         let cfg = store::load_config(&app);
         if !cfg.settings.auto_enabled || cfg.accounts.is_empty() {
             continue;
@@ -731,49 +894,81 @@ pub fn auto_sort_loop(app: AppHandle) {
         if !auto_due(&cfg.settings, cfg.last_auto_run) {
             continue;
         }
+        auto_pass(&app);
+    }
+}
 
-        let mut archived = 0u32;
-        let mut junked = 0u32;
-        let mut erreurs: Vec<String> = Vec::new();
-        for account in cfg.accounts.clone() {
-            match auto_sort_account(&app, &account.id, &cfg.settings.auto_scope, cfg.settings.auto_junk)
-            {
-                Ok(res) => {
-                    archived += res.archived;
-                    junked += res.junked;
-                    if let Some(err) = res.errors.first() {
-                        erreurs.push(err.clone());
-                    }
+/// Une passe complète de rangement automatique, sur tous les comptes.
+fn auto_pass(app: &AppHandle) {
+    let cfg = store::load_config(app);
+    if cfg.accounts.is_empty() {
+        return;
+    }
+
+    let mut archived = 0u32;
+    let mut junked = 0u32;
+    let mut erreurs: Vec<String> = Vec::new();
+    for account in cfg.accounts.clone() {
+        match auto_sort_account(
+            app,
+            &account.id,
+            &cfg.settings.auto_scope,
+            cfg.settings.auto_junk,
+            false,
+        ) {
+            Ok(res) => {
+                archived += res.archived;
+                junked += res.junked;
+                if let Some(err) = res.errors.first() {
+                    erreurs.push(err.clone());
                 }
-                Err(e) => erreurs.push(format!("{} : {e}", account.email)),
             }
-        }
-
-        let stamp = chrono::Local::now().format("%d/%m à %H:%M");
-        let mut resume = format!("{stamp} — {archived} mails rangés");
-        if junked > 0 {
-            resume.push_str(&format!(", {junked} vers les indésirables"));
-        }
-        if !erreurs.is_empty() {
-            resume.push_str(&format!(" · {} erreur(s) : {}", erreurs.len(), erreurs[0]));
-        }
-
-        let mut cfg2 = store::load_config(&app);
-        cfg2.last_auto_run = chrono::Utc::now().timestamp();
-        cfg2.last_auto_result = resume.clone();
-        store::save_config(&app, &cfg2);
-        let _ = app.emit("auto-sort-done", resume.clone());
-
-        if archived + junked > 0 {
-            use tauri_plugin_notification::NotificationExt;
-            let _ = app
-                .notification()
-                .builder()
-                .title("Médor 🐶")
-                .body(&resume)
-                .show();
+            Err(e) => erreurs.push(format!("{} : {e}", account.email)),
         }
     }
+
+    let stamp = chrono::Local::now().format("%d/%m à %H:%M");
+    let mut resume = format!("{stamp} — {archived} mails rangés");
+    if junked > 0 {
+        resume.push_str(&format!(", {junked} vers les indésirables"));
+    }
+    if !erreurs.is_empty() {
+        resume.push_str(&format!(" · {} erreur(s) : {}", erreurs.len(), erreurs[0]));
+    }
+
+    let mut cfg2 = store::load_config(app);
+    cfg2.last_auto_run = chrono::Utc::now().timestamp();
+    cfg2.last_auto_result = resume.clone();
+    store::save_config(app, &cfg2);
+    let _ = app.emit("auto-sort-done", resume.clone());
+
+    if archived + junked > 0 {
+        notifier(app, &resume);
+    }
+}
+
+/// Un rangement automatique est-il en retard ? (interrogé au lancement pour
+/// proposer la popup « Lancer maintenant / Plus tard »).
+#[tauri::command]
+pub fn auto_pending(app: AppHandle) -> bool {
+    let cfg = store::load_config(&app);
+    cfg.settings.auto_enabled
+        && !cfg.accounts.is_empty()
+        && auto_due(&cfg.settings, cfg.last_auto_run)
+}
+
+#[tauri::command]
+pub fn auto_run_now(app: AppHandle) {
+    std::thread::spawn(move || auto_pass(&app));
+}
+
+/// « Plus tard » : la passe en retard est considérée comme traitée, la
+/// prochaine viendra à l'échéance normale.
+#[tauri::command]
+pub fn auto_defer(app: AppHandle) {
+    let mut cfg = store::load_config(&app);
+    cfg.last_auto_run = chrono::Utc::now().timestamp();
+    store::save_config(&app, &cfg);
 }
 
 fn auto_due(settings: &Settings, last_run: i64) -> bool {
@@ -802,8 +997,9 @@ fn auto_sort_account(
     account_id: &str,
     scope: &str,
     junk: bool,
+    fresh: bool,
 ) -> Result<ApplyResult, String> {
-    let plan = scan_blocking(app.clone(), account_id.to_string(), scope.to_string())?;
+    let plan = scan_blocking(app.clone(), account_id.to_string(), scope.to_string(), fresh)?;
     if plan.senders.is_empty() {
         return Ok(ApplyResult::default());
     }
@@ -812,7 +1008,6 @@ fn auto_sort_account(
     let labels: Vec<ApplySelectionLabel> = plan
         .labels
         .iter()
-        .filter(|l| l.name != "À trier")
         .map(|l| ApplySelectionLabel {
             name: l.name.clone(),
             sender_keys: l
@@ -835,7 +1030,139 @@ fn auto_sort_account(
             junk_sender_keys: junk_keys,
             label_colors: HashMap::new(),
         },
+        "auto".into(),
     )
+}
+
+/// « Range tout » : enchaîne analyse + rangement par tranches jusqu'à ce que
+/// la boîte de réception soit entièrement traitée. Émet « boucle-progress ».
+#[tauri::command]
+pub async fn sort_everything(
+    app: AppHandle,
+    account_id: String,
+    scope: String,
+    fresh: bool,
+) -> Result<ApplyResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut total = ApplyResult::default();
+        for passe in 1..=30u32 {
+            // « Repartir de zéro » ne vaut que pour la première tranche : les
+            // suivantes réutilisent la taxonomie qu'elle vient de poser.
+            let res = auto_sort_account(&app, &account_id, &scope, false, fresh && passe == 1)?;
+            total.archived += res.archived;
+            total.junked += res.junked;
+            total.labels_created += res.labels_created;
+            total.errors.extend(res.errors.clone());
+            let _ = app.emit(
+                "boucle-progress",
+                BoucleProgress {
+                    passe,
+                    archives_cumules: total.archived,
+                },
+            );
+            if res.archived + res.junked == 0 {
+                break;
+            }
+        }
+        notifier(
+            &app,
+            &format!("Range tout terminé : {} mails rangés.", total.archived),
+        );
+        Ok(total)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Le journal de Médor, du plus récent au plus ancien.
+#[tauri::command]
+pub async fn get_journal(app: AppHandle) -> Result<Vec<JournalEntry>, String> {
+    let cfg = store::load_config(&app);
+    let mut journal = cfg.journal;
+    journal.reverse();
+    Ok(journal)
+}
+
+/// Annulation ciblée d'une entrée du journal : vide les libellés touchés par
+/// ce rangement vers la boîte de réception (puis les supprime).
+#[tauri::command]
+pub async fn undo_journal_entry(app: AppHandle, entry_id: String) -> Result<RestoreResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = store::load_config(&app);
+        let entry = cfg
+            .journal
+            .iter()
+            .find(|e| e.id == entry_id)
+            .ok_or("Entrée de journal introuvable.")?
+            .clone();
+        if entry.labels.is_empty() {
+            return Err("Rien à annuler pour cette entrée.".into());
+        }
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == entry.account_id)
+            .ok_or("Le compte de cette entrée n'est plus connecté.")?
+            .clone();
+        let _busy = prendre_verrou(&app, &account.id, "restauration")?;
+
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress { done, total, label: "Restauration".into() },
+            );
+        };
+        let result = organizer::restore_to_inbox(&mut session, &entry.labels, &emit)?;
+        let _ = session.logout();
+
+        let mut cfg2 = store::load_config(&app);
+        if let Some(tracked) = cfg2.created_labels.get_mut(&account.id) {
+            tracked.retain(|l| !entry.labels.contains(l));
+        }
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account.id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "restauration".into(),
+                archived: 0,
+                junked: 0,
+                trashed: 0,
+                restored: result.restored,
+                labels_created: 0,
+                labels: entry.labels.clone(),
+            },
+        );
+        store::save_config(&app, &cfg2);
+
+        let state = app.state::<AppState>();
+        state.scans.lock().unwrap().remove(&account.id);
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Aperçu des mails d'un expéditeur (depuis la dernière analyse).
+#[tauri::command]
+pub async fn get_sender_preview(
+    app: AppHandle,
+    account_id: String,
+    sender_key: String,
+) -> Result<Vec<ApercuMail>, String> {
+    let state = app.state::<AppState>();
+    let scans = state.scans.lock().unwrap();
+    let cache = scans
+        .get(&account_id)
+        .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
+    Ok(cache
+        .uids
+        .get(&sender_key)
+        .map(|g| g.apercu.clone())
+        .unwrap_or_default())
 }
 
 /// Annulation d'urgence : remet en boîte de réception tous les mails des
@@ -843,8 +1170,7 @@ fn auto_sort_account(
 #[tauri::command]
 pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<RestoreResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _busy = BusyGuard::try_new(&app, &account_id)
-            .ok_or("Une opération est déjà en cours sur ce compte.")?;
+        let _busy = prendre_verrou(&app, &account_id, "restauration")?;
         let cfg = store::load_config(&app);
         let account = cfg
             .accounts
@@ -866,16 +1192,119 @@ pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<Restore
         }
 
         let mut session = crate::mail::open_session(&app, &account)?;
-        let result = organizer::restore_to_inbox(&mut session, &tracked)?;
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress { done, total, label: "Restauration".into() },
+            );
+        };
+        let result = organizer::restore_to_inbox(&mut session, &tracked, &emit)?;
         let _ = session.logout();
 
         let mut cfg2 = store::load_config(&app);
         cfg2.created_labels.remove(&account_id);
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "restauration".into(),
+                archived: 0,
+                junked: 0,
+                trashed: 0,
+                restored: result.restored,
+                labels_created: 0,
+                labels: Vec::new(),
+            },
+        );
         store::save_config(&app, &cfg2);
 
         let state = app.state::<AppState>();
         state.scans.lock().unwrap().remove(&account_id);
         Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Met à la corbeille TOUS les mails (analysés) d'un ou plusieurs expéditeurs
+/// — pour purger les pubs et newsletters qui polluent. Récupérable depuis la
+/// corbeille du compte. Émet « apply-progress » pendant l'opération.
+#[tauri::command]
+pub async fn trash_senders(
+    app: AppHandle,
+    account_id: String,
+    sender_keys: Vec<String>,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "corbeille")?;
+        let uids: Vec<u32> = {
+            let state = app.state::<AppState>();
+            let scans = state.scans.lock().unwrap();
+            let cache = scans
+                .get(&account_id)
+                .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
+            sender_keys
+                .iter()
+                .filter_map(|k| cache.uids.get(k))
+                .flat_map(|g| g.all.iter().copied())
+                .collect()
+        };
+        if uids.is_empty() {
+            return Ok(0);
+        }
+
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress {
+                    done,
+                    total,
+                    label: "Corbeille".into(),
+                },
+            );
+        };
+        let count = organizer::trash_uids(&mut session, &uids, &busy.cancel, &emit)?;
+        let _ = session.logout();
+
+        // Ces mails ne sont plus dans la boîte : on les retire du plan en cache.
+        let state = app.state::<AppState>();
+        if let Some(cache) = state.scans.lock().unwrap().get_mut(&account_id) {
+            for key in &sender_keys {
+                cache.uids.remove(key);
+            }
+        }
+
+        let mut cfg2 = store::load_config(&app);
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "corbeille".into(),
+                archived: 0,
+                junked: 0,
+                trashed: count,
+                restored: 0,
+                labels_created: 0,
+                labels: Vec::new(),
+            },
+        );
+        store::save_config(&app, &cfg2);
+        Ok(count)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -930,11 +1359,18 @@ pub async fn unsubscribe_one_click(
             .body("List-Unsubscribe=One-Click")
             .send()
         {
-            Ok(resp) if resp.status().is_success() => Ok(UnsubscribeResult {
-                ok: true,
-                method: "one-click".into(),
-                detail: format!("Désabonnement demandé auprès de {}", sender.domain),
-            }),
+            Ok(resp) if resp.status().is_success() => {
+                // Mémoriser pour surveiller les expéditeurs qui insistent.
+                let mut cfg = store::load_config(&app);
+                cfg.unsubscribed
+                    .insert(sender_key.clone(), chrono::Utc::now().timestamp());
+                store::save_config(&app, &cfg);
+                Ok(UnsubscribeResult {
+                    ok: true,
+                    method: "one-click".into(),
+                    detail: format!("Désabonnement demandé auprès de {}", sender.domain),
+                })
+            }
             Ok(_) => Ok(UnsubscribeResult {
                 ok: false,
                 method: "lien".into(),
