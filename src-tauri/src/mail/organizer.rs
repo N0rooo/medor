@@ -427,6 +427,55 @@ pub fn restore_to_inbox(
     Ok(result)
 }
 
+/// Dossiers « rangés » du compte : tous les dossiers sélectionnables, sauf la
+/// boîte de réception et les dossiers système (FR/EN).
+pub fn dossiers_ranges(session: &mut ImapSession) -> Result<Vec<String>, String> {
+    let names = session
+        .list(Some(""), Some("*"))
+        .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
+    let mut delimiter = "/".to_string();
+    let mut wires: Vec<String> = Vec::new();
+    for name in names.iter() {
+        if let Some(d) = name.delimiter() {
+            if !d.is_empty() {
+                delimiter = d.to_string();
+            }
+        }
+        let noselect = name
+            .attributes()
+            .iter()
+            .any(|a| matches!(a, imap::types::NameAttribute::NoSelect));
+        if !noselect {
+            wires.push(name.name().to_string());
+        }
+    }
+    drop(names);
+    Ok(wires
+        .into_iter()
+        .filter(|wire| {
+            let lower = super::utf7::decode(wire).to_lowercase();
+            if lower == "inbox"
+                || lower.starts_with("[gmail]")
+                || lower.starts_with("[google mail]")
+            {
+                return false;
+            }
+            let racine = lower
+                .split(delimiter.as_str())
+                .next()
+                .unwrap_or(&lower)
+                .to_string();
+            let dernier = lower
+                .rsplit(delimiter.as_str())
+                .next()
+                .unwrap_or(&lower)
+                .to_string();
+            !(DOSSIERS_PROTEGES.contains(&racine.as_str())
+                || DOSSIERS_PROTEGES.contains(&dernier.as_str()))
+        })
+        .collect())
+}
+
 /// Trouve la corbeille du compte et le délimiteur de dossiers.
 fn dossier_corbeille(session: &mut ImapSession) -> Result<(String, String), String> {
     let names = session

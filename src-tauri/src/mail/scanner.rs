@@ -90,66 +90,9 @@ pub fn scan_inbox(
             .map_err(|e| format!("Lecture des messages impossible : {e}"))?;
 
         for fetch in fetches.iter() {
-            let Some(uid) = fetch.uid else { continue };
-            let seen = fetch
-                .flags()
-                .iter()
-                .any(|f| matches!(f, imap::types::Flag::Seen));
-            let header_bytes = fetch.header().unwrap_or(b"");
-            let parsed = mailparse::parse_headers(header_bytes);
-            let (from_name, from_addr, subject, date_ts, list_unsub, one_click, has_list_id, bulk) =
-                match parsed {
-                    Ok((headers, _)) => {
-                        let from_raw = headers.get_first_value("From").unwrap_or_default();
-                        let (name, addr) = parse_from(&from_raw);
-                        let subject = headers.get_first_value("Subject").unwrap_or_default();
-                        let date_ts = headers
-                            .get_first_value("Date")
-                            .and_then(|d| mailparse::dateparse(&d).ok())
-                            .unwrap_or(0);
-                        let list_unsub = headers.get_first_value("List-Unsubscribe");
-                        let one_click = headers
-                            .get_first_value("List-Unsubscribe-Post")
-                            .map(|v| v.to_lowercase().contains("one-click"))
-                            .unwrap_or(false);
-                        let has_list_id = headers.get_first_value("List-Id").is_some();
-                        let bulk = headers
-                            .get_first_value("Precedence")
-                            .map(|v| {
-                                let v = v.to_lowercase();
-                                v.contains("bulk") || v.contains("list")
-                            })
-                            .unwrap_or(false);
-                        (name, addr, subject, date_ts, list_unsub, one_click, has_list_id, bulk)
-                    }
-                    Err(_) => (
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        0,
-                        None,
-                        false,
-                        false,
-                        false,
-                    ),
-                };
-
-            if from_addr.is_empty() {
-                continue;
+            if let Some(m) = message_depuis_fetch(fetch) {
+                messages.push(m);
             }
-
-            messages.push(ScannedMessage {
-                uid,
-                from_name,
-                from_addr,
-                subject,
-                date_ts,
-                seen,
-                list_unsubscribe: list_unsub,
-                one_click,
-                has_list_id,
-                precedence_bulk: bulk,
-            });
         }
 
         emit(ScanProgress {
@@ -161,6 +104,134 @@ pub fn scan_inbox(
     }
 
     Ok((messages, inbox_total))
+}
+
+/// Transforme un FETCH (UID FLAGS RFC822.HEADER) en message analysé.
+fn message_depuis_fetch(fetch: &imap::types::Fetch) -> Option<ScannedMessage> {
+    let uid = fetch.uid?;
+    let seen = fetch
+        .flags()
+        .iter()
+        .any(|f| matches!(f, imap::types::Flag::Seen));
+    let header_bytes = fetch.header().unwrap_or(b"");
+    let (from_name, from_addr, subject, date_ts, list_unsub, one_click, has_list_id, bulk) =
+        match mailparse::parse_headers(header_bytes) {
+            Ok((headers, _)) => {
+                let from_raw = headers.get_first_value("From").unwrap_or_default();
+                let (name, addr) = parse_from(&from_raw);
+                let subject = headers.get_first_value("Subject").unwrap_or_default();
+                let date_ts = headers
+                    .get_first_value("Date")
+                    .and_then(|d| mailparse::dateparse(&d).ok())
+                    .unwrap_or(0);
+                let list_unsub = headers.get_first_value("List-Unsubscribe");
+                let one_click = headers
+                    .get_first_value("List-Unsubscribe-Post")
+                    .map(|v| v.to_lowercase().contains("one-click"))
+                    .unwrap_or(false);
+                let has_list_id = headers.get_first_value("List-Id").is_some();
+                let bulk = headers
+                    .get_first_value("Precedence")
+                    .map(|v| {
+                        let v = v.to_lowercase();
+                        v.contains("bulk") || v.contains("list")
+                    })
+                    .unwrap_or(false);
+                (name, addr, subject, date_ts, list_unsub, one_click, has_list_id, bulk)
+            }
+            Err(_) => (
+                String::new(),
+                String::new(),
+                String::new(),
+                0,
+                None,
+                false,
+                false,
+                false,
+            ),
+        };
+    if from_addr.is_empty() {
+        return None;
+    }
+    Some(ScannedMessage {
+        uid,
+        from_name,
+        from_addr,
+        subject,
+        date_ts,
+        seen,
+        list_unsubscribe: list_unsub,
+        one_click,
+        has_list_id,
+        precedence_bulk: bulk,
+    })
+}
+
+/// Lit les en-têtes des dossiers donnés (noms IMAP encodés), sans rien
+/// déplacer — sert au ré-inventaire des mails déjà rangés.
+pub fn scan_folders(
+    session: &mut ImapSession,
+    folders_wire: &[String],
+    cancel: &AtomicBool,
+    emit: &dyn Fn(ScanProgress),
+) -> Result<Vec<ScannedMessage>, String> {
+    // Pré-inventaire : total réel, pour une progression honnête.
+    let mut travaux: Vec<(String, u32)> = Vec::new();
+    let mut total: u32 = 0;
+    for wire in folders_wire {
+        if let Ok(mb) = session.select(wire) {
+            if mb.exists > 0 {
+                travaux.push((wire.clone(), mb.exists));
+                total += mb.exists;
+            }
+        }
+    }
+    emit(ScanProgress {
+        phase: "liste".into(),
+        done: 0,
+        total,
+        note: None,
+    });
+
+    let mut messages: Vec<ScannedMessage> = Vec::new();
+    for (wire, _) in travaux {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Opération annulée.".into());
+        }
+        if session.select(&wire).is_err() {
+            continue;
+        }
+        let mut uids: Vec<u32> = match session.uid_search("ALL") {
+            Ok(set) => set.into_iter().collect(),
+            Err(_) => continue,
+        };
+        uids.sort_unstable();
+        for chunk in uids.chunks(FETCH_CHUNK) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Opération annulée.".into());
+            }
+            let set = chunk
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let fetches = session
+                .uid_fetch(&set, "(UID FLAGS RFC822.HEADER)")
+                .map_err(|e| format!("Lecture des messages impossible : {e}"))?;
+            for fetch in fetches.iter() {
+                if let Some(m) = message_depuis_fetch(fetch) {
+                    messages.push(m);
+                }
+            }
+            emit(ScanProgress {
+                phase: "lecture".into(),
+                done: (messages.len() as u32).min(total),
+                total,
+                note: None,
+            });
+        }
+    }
+    Ok(messages)
 }
 
 fn parse_from(raw: &str) -> (String, String) {

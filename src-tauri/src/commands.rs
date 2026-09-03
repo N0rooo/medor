@@ -1363,6 +1363,81 @@ pub async fn trash_senders(
     .map_err(|e| e.to_string())?
 }
 
+// ------------------------------------------------------------- Ré-inventaire
+
+/// Reconstruit expéditeurs, newsletters et indésirables en LISANT les dossiers
+/// de rangement — sans rien déplacer. Sert à retrouver la liste des
+/// newsletters après un rangement complet (boîte de réception vide).
+#[tauri::command]
+pub async fn rescan_organized(app: AppHandle, account_id: String) -> Result<Plan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "inventaire")?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "connexion".into(),
+                done: 0,
+                total: 0,
+                note: None,
+            },
+        );
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let dossiers = organizer::dossiers_ranges(&mut session)?;
+        let emit = |p: ScanProgress| emit_scan(&app, p);
+        let messages = scanner::scan_folders(&mut session, &dossiers, &busy.cancel, &emit)?;
+        let _ = session.logout();
+
+        let (mut groups, _uids) = build_groups(&messages, true);
+        for group in groups.iter_mut() {
+            if let Some(libelle) = cfg.sender_rules.get(&group.key) {
+                group.label = libelle.clone();
+            }
+            if let Some(ts) = cfg.unsubscribed.get(&group.key) {
+                group.unsubscribed_at = Some(*ts);
+                group.still_mailing = group.last_ts > ts + 3 * 86400;
+            }
+        }
+        let plan = build_plan(
+            &account_id,
+            messages.len() as u32,
+            0,
+            groups,
+            "inventaire".into(),
+            None,
+            "rangés".into(),
+            Vec::new(),
+        );
+        // UIDs volontairement vides : ce plan alimente les onglets Newsletters
+        // et Indésirables, il ne doit jamais re-déplacer de mails.
+        store::save_plan(
+            &app,
+            &account_id,
+            &store::PlanStocke {
+                plan: plan.clone(),
+                uids: HashMap::new(),
+            },
+        );
+        let state = app.state::<AppState>();
+        state.scans.lock().unwrap().insert(
+            account_id.clone(),
+            ScanCache {
+                uids: HashMap::new(),
+                plan: plan.clone(),
+            },
+        );
+        Ok(plan)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------------------------------------------------------------- Désabonnement
 
 #[tauri::command]

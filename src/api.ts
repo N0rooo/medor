@@ -39,6 +39,7 @@ export const api = {
   autoDefer: () => invoke<void>('auto_defer'),
 
   getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
+  rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),
   scanAccount: (accountId: string, scope: ScanScope, fresh: boolean) =>
     invoke<Plan>('scan_account', { accountId, scope, fresh }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>

@@ -174,6 +174,27 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setPlan(p)
   }
 
+  /** Ré-inventaire des mails déjà rangés : reconstruit newsletters et
+   * indésirables en lisant les dossiers, sans rien déplacer. */
+  const inventorier = async () => {
+    setErreur(null)
+    setResultat(null)
+    opLocale.current = true
+    setScan({ phase: 'connexion', done: 0, total: 0 })
+    try {
+      const p = await api.rescanOrganized(accountId)
+      adopterPlan(p)
+      setRangeFait(true)
+      setOnglet('newsletters')
+    } catch (e) {
+      const msg = String(e)
+      if (!msg.includes('annulée')) setErreur(msg)
+    } finally {
+      opLocale.current = false
+      setScan(null)
+    }
+  }
+
   const lancerAnalyse = async () => {
     setErreur(null)
     setResultat(null)
@@ -501,9 +522,14 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             {plan.scope === 'tous' && 'La boîte de réception est vide sur la période analysée.'}{' '}
             Médor n’a rien trouvé à faire — c’est qu’elle est bien rangée.
           </p>
-          <button className="secondaire" onClick={() => setPlan(null)}>
-            Nouvelle analyse (changer la portée)
-          </button>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="principal" onClick={inventorier} disabled={occupe || scan !== null}>
+              🔎 Retrouver mes newsletters (mails rangés)
+            </button>
+            <button className="secondaire" onClick={() => setPlan(null)}>
+              Nouvelle analyse (changer la portée)
+            </button>
+          </div>
         </div>
       )}
 
