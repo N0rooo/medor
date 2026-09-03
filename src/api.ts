@@ -20,7 +20,9 @@ import type {
   ScanProgress,
   ScanScope,
   SettingsPatch,
-  UnsubscribeResult
+  UnsubscribeResult,
+  VidageMultiple,
+  VidageResult
 } from './types'
 
 export const api = {
@@ -47,7 +49,9 @@ export const api = {
   folderPreview: (accountId: string, folder: string) =>
     invoke<ApercuMail[]>('folder_preview', { accountId, folder }),
   trashFolder: (accountId: string, folder: string) =>
-    invoke<number>('trash_folder', { accountId, folder }),
+    invoke<VidageResult>('trash_folder', { accountId, folder }),
+  trashFolders: (accountId: string, folders: string[]) =>
+    invoke<VidageMultiple>('trash_folders', { accountId, folders }),
   scanAccount: (accountId: string, scope: ScanScope, fresh: boolean) =>
     invoke<Plan>('scan_account', { accountId, scope, fresh }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>

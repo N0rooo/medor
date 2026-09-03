@@ -478,13 +478,15 @@ pub fn dossiers_ranges(session: &mut ImapSession) -> Result<(Vec<String>, String
 }
 
 /// Met à la corbeille TOUT le contenu d'un dossier (nom affiché, « / »),
-/// sans supprimer le dossier lui-même.
+/// puis supprime le dossier lui-même (sauf s'il garde des sous-dossiers :
+/// certains serveurs refusent, on le laisse alors en place).
+/// Renvoie (mails déplacés, dossier supprimé ?).
 pub fn trash_folder_content(
     session: &mut ImapSession,
     folder_display: &str,
     cancel: &AtomicBool,
     emit: &dyn Fn(u32, u32),
-) -> Result<u32, String> {
+) -> Result<(u32, bool), String> {
     let (trash, delimiter) = dossier_corbeille(session)?;
     let wire = super::utf7::encode(&folder_display.replace('/', &delimiter));
     session
@@ -501,7 +503,8 @@ pub fn trash_folder_content(
     let mut count: u32 = 0;
     for chunk in uids.chunks(MOVE_CHUNK) {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(count);
+            // Annulé en route : le dossier garde ses mails restants.
+            return Ok((count, false));
         }
         let set = chunk
             .iter()
@@ -513,7 +516,11 @@ pub fn trash_folder_content(
         }
         emit(count.min(total), total);
     }
-    Ok(count)
+
+    // Supprimer le dossier vidé (impossible tant qu'il est sélectionné).
+    let _ = session.select("INBOX");
+    let deleted = session.delete(&wire).is_ok();
+    Ok((count, deleted))
 }
 
 /// Trouve la corbeille du compte et le délimiteur de dossiers.

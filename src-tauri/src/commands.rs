@@ -1523,7 +1523,7 @@ pub async fn trash_folder(
     app: AppHandle,
     account_id: String,
     folder: String,
-) -> Result<u32, String> {
+) -> Result<VidageResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let busy = prendre_verrou(&app, &account_id, "corbeille")?;
         let cfg = store::load_config(&app);
@@ -1544,7 +1544,7 @@ pub async fn trash_folder(
                 },
             );
         };
-        let count =
+        let (count, folder_deleted) =
             organizer::trash_folder_content(&mut session, &folder, &busy.cancel, &emit)?;
         let _ = session.logout();
 
@@ -1566,7 +1566,94 @@ pub async fn trash_folder(
             },
         );
         store::save_config(&app, &cfg2);
-        Ok(count)
+        Ok(VidageResult {
+            trashed: count,
+            folder_deleted,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Vide et supprime PLUSIEURS libellés d'un coup : un seul verrou, une seule
+/// progression cumulée, une seule entrée au Journal. Enfants avant parents.
+#[tauri::command]
+pub async fn trash_folders(
+    app: AppHandle,
+    account_id: String,
+    folders: Vec<String>,
+) -> Result<VidageMultiple, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "corbeille")?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+
+        // Enfants d'abord : un parent vidé de ses sous-dossiers devient supprimable.
+        let mut liste = folders.clone();
+        liste.sort_by_key(|n| std::cmp::Reverse(n.matches('/').count()));
+
+        let mut total_trashed: u32 = 0;
+        let mut deleted: Vec<String> = Vec::new();
+        let total_libelles = liste.len() as u32;
+        for (index, folder) in liste.iter().enumerate() {
+            if busy.annule() {
+                break;
+            }
+            let emit = |done: u32, total: u32| {
+                let _ = app.emit(
+                    "apply-progress",
+                    ApplyProgress {
+                        done,
+                        total,
+                        label: format!(
+                            "Corbeille — {} ({}/{})",
+                            folder,
+                            index as u32 + 1,
+                            total_libelles
+                        ),
+                    },
+                );
+            };
+            match organizer::trash_folder_content(&mut session, folder, &busy.cancel, &emit) {
+                Ok((n, folder_deleted)) => {
+                    total_trashed += n;
+                    if folder_deleted {
+                        deleted.push(folder.clone());
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        let _ = session.logout();
+
+        let mut cfg2 = store::load_config(&app);
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "corbeille".into(),
+                archived: 0,
+                junked: 0,
+                trashed: total_trashed,
+                restored: 0,
+                labels_created: 0,
+                labels: folders.clone(),
+            },
+        );
+        store::save_config(&app, &cfg2);
+        Ok(VidageMultiple {
+            trashed: total_trashed,
+            deleted,
+        })
     })
     .await
     .map_err(|e| e.to_string())?

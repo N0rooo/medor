@@ -98,6 +98,16 @@ export interface DossierCompte {
   unseen: number
 }
 
+export interface VidageResult {
+  trashed: number
+  folderDeleted: boolean
+}
+
+export interface VidageMultiple {
+  trashed: number
+  deleted: string[]
+}
+
 export interface ArbreCompte {
   dossiers: DossierCompte[]
   updatedAt: number

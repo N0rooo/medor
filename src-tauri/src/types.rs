@@ -182,6 +182,23 @@ pub struct DossierCompte {
     pub unseen: u32,
 }
 
+/// Résultat du vidage d'un libellé (vue « Ma boîte »).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VidageResult {
+    pub trashed: u32,
+    pub folder_deleted: bool,
+}
+
+/// Résultat d'un vidage multiple (sélection de libellés).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VidageMultiple {
+    pub trashed: u32,
+    /// Libellés effectivement supprimés (les autres gardaient des sous-dossiers).
+    pub deleted: Vec<String>,
+}
+
 /// Arborescence persistée d'un compte (vue « Ma boîte »).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

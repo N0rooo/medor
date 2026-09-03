@@ -46,6 +46,10 @@ export default function MaBoite({
   const [armeVider, setArmeVider] = useState<string | null>(null)
   const [statuts, setStatuts] = useState<Record<string, string>>({})
   const [recherche, setRecherche] = useState('')
+  /** Sélection multiple de libellés, pour supprimer en un coup. */
+  const [selection, setSelection] = useState<Record<string, boolean>>({})
+  const [armeSelection, setArmeSelection] = useState(false)
+  const [selectionEnCours, setSelectionEnCours] = useState(false)
   const [majDate, setMajDate] = useState<number | null>(null)
   /** Une opération vient de se terminer : l'arbre affiché est périmé. */
   const [perime, setPerime] = useState(false)
@@ -59,6 +63,7 @@ export default function MaBoite({
       setMajDate(Math.floor(Date.now() / 1000))
       setApercus({})
       setStatuts({})
+      setSelection({})
       setPerime(false)
     } catch (e) {
       const m = String(e)
@@ -145,15 +150,60 @@ export default function MaBoite({
     }
   }
 
+  const cochees = useMemo(
+    () => (arbre ?? []).filter((d) => selection[d.name]),
+    [arbre, selection]
+  )
+  const totalCoche = cochees.reduce((n, d) => n + d.total, 0)
+
+  const viderSelection = async () => {
+    setArmeSelection(false)
+    setSelectionEnCours(true)
+    try {
+      const res = await api.trashFolders(
+        accountId,
+        cochees.map((d) => d.name)
+      )
+      const supprimes = new Set(res.deleted)
+      setArbre(
+        (a) =>
+          a
+            ?.filter((d) => !supprimes.has(d.name))
+            .map((d) => (selection[d.name] ? { ...d, total: 0, unseen: 0 } : d)) ?? null
+      )
+      setApercus((ap) => {
+        const suivant = { ...ap }
+        for (const d of cochees) delete suivant[d.name]
+        return suivant
+      })
+      setSelection({})
+    } catch (e) {
+      const m = String(e)
+      if (!m.includes('annulée')) setErreur(m)
+    } finally {
+      setSelectionEnCours(false)
+    }
+  }
+
   const vider = async (nom: string) => {
     setArmeVider(null)
     setStatuts((st) => ({ ...st, [nom]: 'Suppression en cours…' }))
     try {
-      const n = await api.trashFolder(accountId, nom)
-      setStatuts((st) => ({ ...st, [nom]: `🗑️ ${n.toLocaleString('fr-FR')} mails supprimés (corbeille du compte)` }))
-      setArbre(
-        (a) => a?.map((d) => (d.name === nom ? { ...d, total: 0, unseen: 0 } : d)) ?? null
-      )
+      const res = await api.trashFolder(accountId, nom)
+      if (res.folderDeleted) {
+        // Libellé disparu : on retire la ligne de l'arbre.
+        setArbre((a) => a?.filter((d) => d.name !== nom) ?? null)
+      } else {
+        setStatuts((st) => ({
+          ...st,
+          [nom]:
+            `🗑️ ${res.trashed.toLocaleString('fr-FR')} mails supprimés (corbeille du compte)` +
+            ' · le libellé reste (il a des sous-dossiers)'
+        }))
+        setArbre(
+          (a) => a?.map((d) => (d.name === nom ? { ...d, total: 0, unseen: 0 } : d)) ?? null
+        )
+      }
       // L'aperçu affiché correspond aux mails supprimés : on le retire.
       setApercus((a) => {
         const suivant = { ...a }
@@ -212,6 +262,50 @@ export default function MaBoite({
               value={recherche}
               onChange={(e) => setRecherche(e.target.value)}
             />
+            {cochees.length > 0 && (
+              <div
+                className="info"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  marginTop: 4
+                }}
+              >
+                <strong>
+                  {cochees.length.toLocaleString('fr-FR')} libellés ·{' '}
+                  {totalCoche.toLocaleString('fr-FR')} mails sélectionnés
+                </strong>
+                {armeSelection ? (
+                  <>
+                    <span className="aide">
+                      Supprimer les mails ET les libellés sélectionnés ? (mails récupérables ~30
+                      jours dans la corbeille du compte)
+                    </span>
+                    <button className="danger" disabled={selectionEnCours} onClick={viderSelection}>
+                      Oui, tout supprimer
+                    </button>
+                    <button className="discret" onClick={() => setArmeSelection(false)}>
+                      Non
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="danger"
+                      disabled={occupe || selectionEnCours}
+                      onClick={() => setArmeSelection(true)}
+                    >
+                      {selectionEnCours ? 'Suppression en cours…' : '🗑️ Supprimer la sélection'}
+                    </button>
+                    <button className="discret" onClick={() => setSelection({})}>
+                      Tout désélectionner
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <div style={{ marginTop: 6 }}>
               {groupes.map(([racine, dossiers]) => {
                 const totalGroupe = dossiers.reduce((n, d) => n + d.total, 0)
@@ -232,6 +326,19 @@ export default function MaBoite({
                         userSelect: 'none'
                       }}
                     >
+                      <input
+                        type="checkbox"
+                        checked={dossiers.every((d) => selection[d.name])}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const coche = e.target.checked
+                          setSelection((sel) => {
+                            const suivant = { ...sel }
+                            for (const d of dossiers) suivant[d.name] = coche
+                            return suivant
+                          })
+                        }}
+                      />
                       <span style={{ width: 14, textAlign: 'center' }}>{ouvert ? '▾' : '▸'}</span>
                       <span
                         style={{
@@ -264,6 +371,13 @@ export default function MaBoite({
                                 flexWrap: 'wrap'
                               }}
                             >
+                              <input
+                                type="checkbox"
+                                checked={selection[d.name] ?? false}
+                                onChange={(e) =>
+                                  setSelection((sel) => ({ ...sel, [d.name]: e.target.checked }))
+                                }
+                              />
                               <span style={{ flex: 1, minWidth: 160 }}>{sous}</span>
                               <span className="aide">
                                 {d.total.toLocaleString('fr-FR')} mails
@@ -281,8 +395,9 @@ export default function MaBoite({
                                   style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
                                 >
                                   <span className="aide">
-                                    Supprimer les {d.total.toLocaleString('fr-FR')} mails de ce
-                                    libellé ? (récupérables ~30 jours dans la corbeille du compte)
+                                    {d.total > 0
+                                      ? `Supprimer les ${d.total.toLocaleString('fr-FR')} mails ET le libellé ? (mails récupérables ~30 jours dans la corbeille du compte)`
+                                      : 'Supprimer ce libellé vide ?'}
                                   </span>
                                   <button className="danger" onClick={() => vider(d.name)}>
                                     Oui, supprimer
@@ -295,9 +410,9 @@ export default function MaBoite({
                                 <button
                                   className="discret"
                                   onClick={() => setArmeVider(d.name)}
-                                  disabled={occupe || d.total === 0}
+                                  disabled={occupe}
                                 >
-                                  🗑️ Supprimer les mails
+                                  {d.total > 0 ? '🗑️ Supprimer les mails' : '🗑️ Supprimer le libellé'}
                                 </button>
                               )}
                             </div>
