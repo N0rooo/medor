@@ -61,7 +61,8 @@ export default function MaBoite({
       setStatuts({})
       setPerime(false)
     } catch (e) {
-      setErreur(String(e))
+      const m = String(e)
+      if (!m.includes('annulée')) setErreur(m)
     } finally {
       setChargement(false)
     }

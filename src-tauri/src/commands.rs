@@ -1370,6 +1370,7 @@ pub async fn trash_senders(
 #[tauri::command]
 pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<DossierCompte>, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "inventaire")?;
         let cfg = store::load_config(&app);
         let account = cfg
             .accounts
@@ -1377,10 +1378,32 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
             .find(|a| a.id == account_id)
             .ok_or("Compte introuvable.")?
             .clone();
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "connexion".into(),
+                done: 0,
+                total: 0,
+                note: None,
+            },
+        );
         let mut session = crate::mail::open_session(&app, &account)?;
         let (wires, delimiter) = organizer::dossiers_ranges(&mut session)?;
+        let total_dossiers = wires.len() as u32;
         let mut dossiers: Vec<DossierCompte> = Vec::new();
-        for wire in wires {
+        for (index, wire) in wires.into_iter().enumerate() {
+            if busy.annule() {
+                return Err("Opération annulée.".into());
+            }
+            emit_scan(
+                &app,
+                ScanProgress {
+                    phase: "lecture".into(),
+                    done: index as u32,
+                    total: total_dossiers,
+                    note: Some("Inventaire des libellés…".into()),
+                },
+            );
             // EXAMINE (SELECT en lecture seule) plutôt que STATUS : le parsing
             // de STATUS désynchronise la session sur certains serveurs.
             let Ok(mb) = session.examine(&wire) else {

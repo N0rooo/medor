@@ -70,7 +70,7 @@ export default function Journal() {
         </div>
       )}
 
-      {entrees?.map((e) => (
+      {entrees?.map((e, index) => (
         <div className="carte" key={e.id} style={{ padding: '16px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 18 }}>{KINDS[e.kind]?.icone ?? '•'}</span>
@@ -93,7 +93,13 @@ export default function Journal() {
               <> · {e.labels.length} libellés touchés</>
             )}
           </p>
-          {(e.kind === 'rangement' || e.kind === 'auto') && e.labels.length > 0 && (
+          {(e.kind === 'rangement' || e.kind === 'auto') && e.labels.length > 0 && index !== 0 && (
+            <p className="aide" style={{ margin: '8px 0 0', fontStyle: 'italic' }}>
+              Annulable seulement tant que c'est la dernière action — des rangements plus
+              récents ont retouché la boîte depuis.
+            </p>
+          )}
+          {(e.kind === 'rangement' || e.kind === 'auto') && e.labels.length > 0 && index === 0 && (
             <div style={{ marginTop: 10 }}>
               {arme === e.id ? (
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

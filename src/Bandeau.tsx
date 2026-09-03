@@ -91,7 +91,7 @@ export default function Bandeau({
 
   if (scan) {
     titre = 'Médor renifle la boîte…'
-    note = PHASES[scan.phase]
+    note = scan.note ?? PHASES[scan.phase]
     if (scan.phase === 'lecture' && scan.total > 0) {
       note += ` (${scan.done}/${scan.total})` + suffixeRestant(scan.done, scan.total)
     } else if (scan.phase === 'ia' && scan.total > 0) {
