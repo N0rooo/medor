@@ -107,7 +107,7 @@ pub fn scan_inbox(
 }
 
 /// Transforme un FETCH (UID FLAGS RFC822.HEADER) en message analysé.
-fn message_depuis_fetch(fetch: &imap::types::Fetch) -> Option<ScannedMessage> {
+pub(crate) fn message_depuis_fetch(fetch: &imap::types::Fetch) -> Option<ScannedMessage> {
     let uid = fetch.uid?;
     let seen = fetch
         .flags()

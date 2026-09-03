@@ -429,7 +429,7 @@ pub fn restore_to_inbox(
 
 /// Dossiers « rangés » du compte : tous les dossiers sélectionnables, sauf la
 /// boîte de réception et les dossiers système (FR/EN).
-pub fn dossiers_ranges(session: &mut ImapSession) -> Result<Vec<String>, String> {
+pub fn dossiers_ranges(session: &mut ImapSession) -> Result<(Vec<String>, String), String> {
     let names = session
         .list(Some(""), Some("*"))
         .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
@@ -450,7 +450,7 @@ pub fn dossiers_ranges(session: &mut ImapSession) -> Result<Vec<String>, String>
         }
     }
     drop(names);
-    Ok(wires
+    let filtres = wires
         .into_iter()
         .filter(|wire| {
             let lower = super::utf7::decode(wire).to_lowercase();
@@ -473,7 +473,47 @@ pub fn dossiers_ranges(session: &mut ImapSession) -> Result<Vec<String>, String>
             !(DOSSIERS_PROTEGES.contains(&racine.as_str())
                 || DOSSIERS_PROTEGES.contains(&dernier.as_str()))
         })
-        .collect())
+        .collect();
+    Ok((filtres, delimiter))
+}
+
+/// Met à la corbeille TOUT le contenu d'un dossier (nom affiché, « / »),
+/// sans supprimer le dossier lui-même.
+pub fn trash_folder_content(
+    session: &mut ImapSession,
+    folder_display: &str,
+    cancel: &AtomicBool,
+    emit: &dyn Fn(u32, u32),
+) -> Result<u32, String> {
+    let (trash, delimiter) = dossier_corbeille(session)?;
+    let wire = super::utf7::encode(&folder_display.replace('/', &delimiter));
+    session
+        .select(&wire)
+        .map_err(|e| format!("Dossier « {folder_display} » inaccessible : {e}"))?;
+    let mut uids: Vec<u32> = session
+        .uid_search("ALL")
+        .map_err(|e| format!("Recherche impossible : {e}"))?
+        .into_iter()
+        .collect();
+    uids.sort_unstable();
+    let total = uids.len() as u32;
+    emit(0, total);
+    let mut count: u32 = 0;
+    for chunk in uids.chunks(MOVE_CHUNK) {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(count);
+        }
+        let set = chunk
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        if move_uids(session, &set, &trash).is_ok() {
+            count += chunk.len() as u32;
+        }
+        emit(count.min(total), total);
+    }
+    Ok(count)
 }
 
 /// Trouve la corbeille du compte et le délimiteur de dossiers.

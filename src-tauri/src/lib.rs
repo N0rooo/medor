@@ -89,7 +89,10 @@ pub fn run() {
             commands::auto_run_now,
             commands::auto_defer,
             commands::get_last_plan,
-            commands::rescan_organized
+            commands::rescan_organized,
+            commands::mailbox_tree,
+            commands::folder_preview,
+            commands::trash_folder
         ])
         .build(tauri::generate_context!())
         .expect("erreur au lancement de Médor");

@@ -3,6 +3,7 @@ import type { AccountConfig, AppBootstrap } from './types'
 import Accueil from './views/Accueil'
 import Dashboard from './views/Dashboard'
 import Journal from './views/Journal'
+import MaBoite from './views/MaBoite'
 import Reglages from './views/Reglages'
 import Mascotte from './Mascotte'
 import Bandeau from './Bandeau'
@@ -11,7 +12,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import type { ApplyProgress, BoucleProgress, ScanProgress } from './types'
 
-type Vue = 'accueil' | 'tableau' | 'journal' | 'reglages'
+type Vue = 'accueil' | 'tableau' | 'boite' | 'journal' | 'reglages'
 
 export default function App() {
   const [boot, setBoot] = useState<AppBootstrap | null>(null)
@@ -126,6 +127,9 @@ export default function App() {
             <button className={vue === 'tableau' ? 'actif' : ''} onClick={() => setVue('tableau')}>
               Tableau de bord
             </button>
+            <button className={vue === 'boite' ? 'actif' : ''} onClick={() => setVue('boite')}>
+              Ma boîte
+            </button>
             <button className={vue === 'accueil' ? 'actif' : ''} onClick={() => setVue('accueil')}>
               Comptes
             </button>
@@ -153,6 +157,11 @@ export default function App() {
               onSelectAccount={setCompteId}
               onAddAccount={() => setVue('accueil')}
             />
+          </div>
+        )}
+        {compteId && (
+          <div style={{ display: vue === 'boite' ? 'block' : 'none' }}>
+            <MaBoite accountId={compteId} occupe={opsActives > 0} actif={vue === 'boite'} />
           </div>
         )}
         {vue === 'journal' && <Journal />}

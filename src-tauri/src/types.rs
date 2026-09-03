@@ -168,6 +168,18 @@ pub struct ApercuMail {
     pub subject: String,
     pub date: String,
     pub seen: bool,
+    /// Expéditeur (utile quand l'aperçu couvre un dossier entier).
+    #[serde(default)]
+    pub from: String,
+}
+
+/// Un dossier du compte, pour la vue « Ma boîte ».
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DossierCompte {
+    pub name: String,
+    pub total: u32,
+    pub unseen: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

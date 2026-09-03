@@ -11,6 +11,7 @@ import type {
   ApplySelection,
   BoucleProgress,
   DeleteLabelsResult,
+  DossierCompte,
   JournalEntry,
   MsDeviceCodeInfo,
   Plan,
@@ -40,6 +41,11 @@ export const api = {
 
   getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
   rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),
+  mailboxTree: (accountId: string) => invoke<DossierCompte[]>('mailbox_tree', { accountId }),
+  folderPreview: (accountId: string, folder: string) =>
+    invoke<ApercuMail[]>('folder_preview', { accountId, folder }),
+  trashFolder: (accountId: string, folder: string) =>
+    invoke<number>('trash_folder', { accountId, folder }),
   scanAccount: (accountId: string, scope: ScanScope, fresh: boolean) =>
     invoke<Plan>('scan_account', { accountId, scope, fresh }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>

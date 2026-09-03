@@ -201,6 +201,7 @@ pub fn build_groups(
                     String::new()
                 },
                 seen: msg.seen,
+                from: String::new(),
             });
         }
     }

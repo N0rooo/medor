@@ -1363,6 +1363,166 @@ pub async fn trash_senders(
     .map_err(|e| e.to_string())?
 }
 
+// ----------------------------------------------------------------- Ma boîte
+
+/// Arborescence réelle du compte : chaque dossier « rangeable » avec ses
+/// compteurs (STATUS), pour la vue « Ma boîte ». Lecture seule.
+#[tauri::command]
+pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<DossierCompte>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let (wires, delimiter) = organizer::dossiers_ranges(&mut session)?;
+        let mut dossiers: Vec<DossierCompte> = Vec::new();
+        for wire in wires {
+            let Ok(mb) = session.status(&wire, "(MESSAGES UNSEEN)") else {
+                continue;
+            };
+            dossiers.push(DossierCompte {
+                name: crate::mail::utf7::decode(&wire).replace(delimiter.as_str(), "/"),
+                total: mb.exists,
+                unseen: mb.unseen.unwrap_or(0),
+            });
+        }
+        let _ = session.logout();
+        dossiers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Ok(dossiers)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Les derniers mails d'un dossier (aperçu, lecture seule).
+#[tauri::command]
+pub async fn folder_preview(
+    app: AppHandle,
+    account_id: String,
+    folder: String,
+) -> Result<Vec<ApercuMail>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let (_, delimiter) = organizer::dossiers_ranges(&mut session)?;
+        let wire = crate::mail::utf7::encode(&folder.replace('/', &delimiter));
+        session
+            .select(&wire)
+            .map_err(|e| format!("Dossier « {folder} » inaccessible : {e}"))?;
+        let mut uids: Vec<u32> = session
+            .uid_search("ALL")
+            .map_err(|e| format!("Recherche impossible : {e}"))?
+            .into_iter()
+            .collect();
+        uids.sort_unstable();
+        if uids.len() > 30 {
+            uids = uids.split_off(uids.len() - 30);
+        }
+        let mut apercus: Vec<ApercuMail> = Vec::new();
+        if !uids.is_empty() {
+            let set = uids
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let fetches = session
+                .uid_fetch(&set, "(UID FLAGS RFC822.HEADER)")
+                .map_err(|e| format!("Lecture impossible : {e}"))?;
+            for fetch in fetches.iter() {
+                if let Some(m) = crate::mail::scanner::message_depuis_fetch(fetch) {
+                    let date = chrono::DateTime::from_timestamp(m.date_ts, 0)
+                        .map(|d| {
+                            d.with_timezone(&chrono::Local)
+                                .format("%d/%m/%Y")
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    apercus.push(ApercuMail {
+                        subject: m.subject,
+                        date,
+                        seen: m.seen,
+                        from: if m.from_name.is_empty() {
+                            m.from_addr
+                        } else {
+                            m.from_name
+                        },
+                    });
+                }
+            }
+        }
+        let _ = session.logout();
+        apercus.reverse();
+        Ok(apercus)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Met à la corbeille tout le contenu d'un libellé (le dossier reste).
+#[tauri::command]
+pub async fn trash_folder(
+    app: AppHandle,
+    account_id: String,
+    folder: String,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "corbeille")?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress {
+                    done,
+                    total,
+                    label: "Corbeille".into(),
+                },
+            );
+        };
+        let count =
+            organizer::trash_folder_content(&mut session, &folder, &busy.cancel, &emit)?;
+        let _ = session.logout();
+
+        let mut cfg2 = store::load_config(&app);
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "corbeille".into(),
+                archived: 0,
+                junked: 0,
+                trashed: count,
+                restored: 0,
+                labels_created: 0,
+                labels: vec![folder.clone()],
+            },
+        );
+        store::save_config(&app, &cfg2);
+        Ok(count)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ------------------------------------------------------------- Ré-inventaire
 
 /// Reconstruit expéditeurs, newsletters et indésirables en LISANT les dossiers
@@ -1389,7 +1549,7 @@ pub async fn rescan_organized(app: AppHandle, account_id: String) -> Result<Plan
             },
         );
         let mut session = crate::mail::open_session(&app, &account)?;
-        let dossiers = organizer::dossiers_ranges(&mut session)?;
+        let (dossiers, _delim) = organizer::dossiers_ranges(&mut session)?;
         let emit = |p: ScanProgress| emit_scan(&app, p);
         let messages = scanner::scan_folders(&mut session, &dossiers, &busy.cancel, &emit)?;
         let _ = session.logout();

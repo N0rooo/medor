@@ -89,6 +89,13 @@ export interface ApercuMail {
   subject: string
   date: string
   seen: boolean
+  from?: string
+}
+
+export interface DossierCompte {
+  name: string
+  total: number
+  unseen: number
 }
 
 export interface JournalEntry {
