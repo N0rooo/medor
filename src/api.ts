@@ -1,4 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
+
+export interface CleanupCriteria {
+  olderThanMonths: number
+  unreadOnly: boolean
+  query: string
+}
 import { listen } from '@tauri-apps/api/event'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
@@ -38,11 +44,16 @@ export const api = {
   autoRunNow: () => invoke<void>('auto_run_now'),
   autoDefer: () => invoke<void>('auto_defer'),
 
+  getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
   scanAccount: (accountId: string, scope: ScanScope, fresh: boolean) =>
     invoke<Plan>('scan_account', { accountId, scope, fresh }),
   deleteLabels: (accountId: string, onlyRangemail: boolean) =>
     invoke<DeleteLabelsResult>('delete_labels', { accountId, onlyRangemail }),
   restoreInbox: (accountId: string) => invoke<RestoreResult>('restore_inbox', { accountId }),
+  cleanupCount: (accountId: string, criteria: CleanupCriteria) =>
+    invoke<number>('cleanup_count', { accountId, criteria }),
+  cleanupTrash: (accountId: string, criteria: CleanupCriteria) =>
+    invoke<number>('cleanup_trash', { accountId, criteria }),
   trashSenders: (accountId: string, senderKeys: string[]) =>
     invoke<number>('trash_senders', { accountId, senderKeys }),
   sortEverything: (accountId: string, scope: ScanScope, fresh: boolean) =>

@@ -136,7 +136,7 @@ pub struct AddAccountInput {
     pub imap: Option<ImapEndpoint>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SenderGroup {
     pub key: String,
@@ -162,7 +162,7 @@ pub struct SenderGroup {
     pub still_mailing: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApercuMail {
     pub subject: String,
@@ -188,7 +188,7 @@ pub struct JournalEntry {
     pub labels: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanLabel {
     pub name: String,
@@ -197,7 +197,7 @@ pub struct PlanLabel {
     pub total_count: u32,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub account_id: String,
@@ -215,6 +215,9 @@ pub struct Plan {
     /// Libellés déjà présents sur le serveur (noms décodés), pour afficher
     /// dans l'app ce qui sera créé vs simplement complété.
     pub existing_labels: Vec<String>,
+    /// Date de l'analyse (epoch s) — sert au rappel « analyse du … ».
+    #[serde(default)]
+    pub scanned_at: i64,
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -2,7 +2,7 @@ use super::scanner::ScannedMessage;
 use crate::types::{ApercuMail, SenderGroup};
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct GroupUids {
     pub read: Vec<u32>,
     pub all: Vec<u32>,

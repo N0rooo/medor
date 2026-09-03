@@ -118,6 +118,7 @@ export interface PlanLabel {
 }
 
 export interface Plan {
+  scannedAt?: number
   accountId: string
   scanned: number
   inboxTotal: number

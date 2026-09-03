@@ -78,6 +78,13 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
   const [couleurs, setCouleurs] = useState<Record<string, string>>({})
   const [enBoucle, setEnBoucle] = useState(false)
   const [armeRangeTout, setArmeRangeTout] = useState(false)
+  // Grand ménage : suppression en masse par critères (serveur, boîte de réception).
+  const [menageMois, setMenageMois] = useState(0)
+  const [menageNonLus, setMenageNonLus] = useState(false)
+  const [menageQuery, setMenageQuery] = useState('')
+  const [menageCompte, setMenageCompte] = useState<number | null>(null)
+  const [menageEnCours, setMenageEnCours] = useState(false)
+  const [menageResultat, setMenageResultat] = useState<string | null>(null)
   /** Copie modifiable des libellés du plan : renommages et réassociations. */
   const [labelsEdit, setLabelsEdit] = useState<PlanLabel[]>([])
 
@@ -119,11 +126,24 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     }
   }, [])
 
-  // Changer de compte remet la vue à zéro.
+  // Changer de compte remet la vue à zéro… puis recharge la dernière analyse
+  // connue de ce compte (persistée sur disque) : newsletters, indésirables et
+  // plan restent disponibles d'un lancement à l'autre.
   useEffect(() => {
     setPlan(null)
     setResultat(null)
     setErreur(null)
+    let annule = false
+    api
+      .getLastPlan(accountId)
+      .then((p) => {
+        if (p && !annule) adopterPlan(p)
+      })
+      .catch(() => {})
+    return () => {
+      annule = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId])
 
   const compte = boot.accounts.find((a) => a.id === accountId)
@@ -133,6 +153,27 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     return map
   }, [plan])
 
+  /** Adopte un plan (analyse fraîche ou rechargée du disque) : coches, couleurs, copie éditable. */
+  const adopterPlan = (p: Plan) => {
+    const libelles: Record<string, boolean> = {}
+    for (const l of p.labels) {
+      libelles[l.name] = l.name !== 'À trier'
+    }
+    const spam: Record<string, boolean> = {}
+    for (const key of p.spamSuspects) spam[key] = true
+    const teintes: Record<string, string> = {}
+    for (const l of p.labels) {
+      const top = l.name.split('/')[0]
+      if (!teintes[top]) teintes[top] = couleurAuto(top)
+    }
+    setLibellesCoches(libelles)
+    setExpediteursCoches({})
+    setSpamCoches(spam)
+    setCouleurs(teintes)
+    setLabelsEdit(p.labels)
+    setPlan(p)
+  }
+
   const lancerAnalyse = async () => {
     setErreur(null)
     setResultat(null)
@@ -141,23 +182,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setScan({ phase: 'connexion', done: 0, total: 0 })
     try {
       const p = await api.scanAccount(accountId, portee, ecraser)
-      const libelles: Record<string, boolean> = {}
-      for (const l of p.labels) {
-        libelles[l.name] = l.name !== 'À trier'
-      }
-      const spam: Record<string, boolean> = {}
-      for (const key of p.spamSuspects) spam[key] = true
-      const teintes: Record<string, string> = {}
-      for (const l of p.labels) {
-        const top = l.name.split('/')[0]
-        if (!teintes[top]) teintes[top] = couleurAuto(top)
-      }
-      setLibellesCoches(libelles)
-      setExpediteursCoches({})
-      setSpamCoches(spam)
-      setCouleurs(teintes)
-      setLabelsEdit(p.labels)
-      setPlan(p)
+      adopterPlan(p)
       setOnglet('libelles')
     } catch (e) {
       const msg = String(e)
@@ -454,6 +479,116 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
           )}
         </div>
       )}
+
+      <details className="carte" style={{ marginTop: 14 }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+          🧹 Grand ménage — supprimer en masse par critères
+        </summary>
+        <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
+          <label>
+            Plus vieux que{' '}
+            <select
+              className="inline"
+              value={menageMois}
+              onChange={(e) => {
+                setMenageMois(Number(e.target.value))
+                setMenageCompte(null)
+              }}
+            >
+              <option value={0}>— peu importe —</option>
+              <option value={6}>6 mois</option>
+              <option value={12}>1 an</option>
+              <option value={24}>2 ans</option>
+              <option value={36}>3 ans</option>
+            </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={menageNonLus}
+              onChange={(e) => {
+                setMenageNonLus(e.target.checked)
+                setMenageCompte(null)
+              }}
+            />
+            jamais lus seulement
+          </label>
+          <input
+            className="inline"
+            placeholder="expéditeur ou domaine contient… (optionnel)"
+            value={menageQuery}
+            onChange={(e) => {
+              setMenageQuery(e.target.value)
+              setMenageCompte(null)
+            }}
+            style={{ minWidth: 280 }}
+          />
+        </div>
+        <p className="aide" style={{ marginTop: 10 }}>
+          Cherche dans la boîte de réception. Les mails partent à la corbeille du compte —
+          récupérables pendant ~30 jours, et l'action est tracée au Journal.
+        </p>
+        <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="secondaire"
+            disabled={
+              menageEnCours || occupe || (menageMois === 0 && !menageNonLus && !menageQuery.trim())
+            }
+            onClick={async () => {
+              setMenageResultat(null)
+              setMenageEnCours(true)
+              try {
+                setMenageCompte(
+                  await api.cleanupCount(accountId, {
+                    olderThanMonths: menageMois,
+                    unreadOnly: menageNonLus,
+                    query: menageQuery
+                  })
+                )
+              } catch (e) {
+                setMenageResultat(String(e))
+              } finally {
+                setMenageEnCours(false)
+              }
+            }}
+          >
+            Compter d'abord
+          </button>
+          {menageCompte === 0 && <span className="aide">Aucun mail ne correspond.</span>}
+          {menageCompte !== null && menageCompte > 0 && (
+            <button
+              className="danger"
+              disabled={menageEnCours || occupe}
+              onClick={async () => {
+                setMenageEnCours(true)
+                setMenageResultat(null)
+                try {
+                  const n = await api.cleanupTrash(accountId, {
+                    olderThanMonths: menageMois,
+                    unreadOnly: menageNonLus,
+                    query: menageQuery
+                  })
+                  setMenageResultat(`${n.toLocaleString('fr-FR')} mails mis à la corbeille.`)
+                  setMenageCompte(null)
+                } catch (e) {
+                  const m = String(e)
+                  if (!m.includes('annulée')) setMenageResultat(m)
+                } finally {
+                  setMenageEnCours(false)
+                }
+              }}
+            >
+              Mettre {menageCompte.toLocaleString('fr-FR')} mails à la corbeille
+            </button>
+          )}
+          {menageEnCours && <span className="aide">Médor s'active…</span>}
+        </div>
+        {menageResultat && (
+          <p className="info" style={{ marginTop: 10 }}>
+            {menageResultat}
+          </p>
+        )}
+      </details>
 
       {plan && plan.senders.length === 0 && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>
@@ -936,7 +1071,7 @@ function Libelles({
               {crayon(racine, true)}
               {badgeEtat(racine)}
               <span className="compte-mails">
-                {total.toLocaleString('fr-FR')} mails · {items.length} sous-dossiers{' '}
+                {total.toLocaleString('fr-FR')} mails · {items.length} sous-dossiers{plan?.scannedAt ? ` · analyse du ${new Date(plan.scannedAt * 1000).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{' '}
                 {groupeOuvert ? '▾' : '▸'}
               </span>
             </div>

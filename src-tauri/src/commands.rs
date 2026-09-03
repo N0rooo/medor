@@ -644,6 +644,14 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
         existing_labels,
     );
 
+    // Persiste l'analyse : au prochain lancement, newsletters, indésirables
+    // et plan sont toujours là — pas besoin de tout refaire.
+    store::save_plan(
+        &app,
+        &account_id,
+        &store::PlanStocke { plan: plan.clone(), uids: uids.clone() },
+    );
+
     let state = app.state::<AppState>();
     state.scans.lock().unwrap().insert(
         account_id,
@@ -653,6 +661,26 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
         },
     );
     Ok(plan)
+}
+
+/// Dernière analyse connue du compte (mémoire, sinon disque) — recharge aussi
+/// les UIDs pour que « Ranger » fonctionne après un redémarrage.
+#[tauri::command]
+pub async fn get_last_plan(app: AppHandle, account_id: String) -> Result<Option<Plan>, String> {
+    let state = app.state::<AppState>();
+    if let Some(cache) = state.scans.lock().unwrap().get(&account_id) {
+        return Ok(Some(cache.plan.clone()));
+    }
+    if let Some(stocke) = store::load_plan(&app, &account_id) {
+        let plan = stocke.plan.clone();
+        state
+            .scans
+            .lock()
+            .unwrap()
+            .insert(account_id, ScanCache { uids: stocke.uids, plan: stocke.plan });
+        return Ok(Some(plan));
+    }
+    Ok(None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -706,6 +734,7 @@ fn build_plan(
         ai_note,
         scope,
         existing_labels,
+        scanned_at: chrono::Utc::now().timestamp(),
     }
 }
 
@@ -1308,6 +1337,148 @@ pub async fn trash_senders(
                 restored: 0,
                 labels_created: 0,
                 labels: Vec::new(),
+            },
+        );
+        store::save_config(&app, &cfg2);
+        Ok(count)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------- Grand ménage
+
+#[derive(serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupCriteria {
+    /// 0 = pas de critère d'ancienneté, sinon « plus vieux que N mois ».
+    pub older_than_months: u32,
+    pub unread_only: bool,
+    /// Texte cherché dans l'expéditeur (FROM) — vide = pas de critère.
+    pub query: String,
+}
+
+/// Traduit les critères en recherche IMAP (exécutée côté serveur).
+fn cleanup_search_query(c: &CleanupCriteria) -> Result<String, String> {
+    let mut parts: Vec<String> = Vec::new();
+    if c.older_than_months > 0 {
+        let date = chrono::Utc::now() - chrono::Duration::days(c.older_than_months as i64 * 30);
+        parts.push(format!("BEFORE {}", date.format("%d-%b-%Y")));
+    }
+    if c.unread_only {
+        parts.push("UNSEEN".into());
+    }
+    let q = c.query.trim();
+    if !q.is_empty() {
+        parts.push(format!("FROM \"{}\"", q.replace('"', "")));
+    }
+    if parts.is_empty() {
+        return Err("Choisissez au moins un critère (ancienneté, non-lus ou expéditeur).".into());
+    }
+    Ok(parts.join(" "))
+}
+
+/// Compte les mails de la boîte de réception correspondant aux critères.
+#[tauri::command]
+pub async fn cleanup_count(
+    app: AppHandle,
+    account_id: String,
+    criteria: CleanupCriteria,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let query = cleanup_search_query(&criteria)?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("Boîte de réception inaccessible : {e}"))?;
+        let uids = session
+            .uid_search(&query)
+            .map_err(|e| format!("Recherche impossible : {e}"))?;
+        let _ = session.logout();
+        Ok(uids.len() as u32)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Met à la corbeille tous les mails correspondant aux critères (annulable,
+/// tracé au Journal — rien n'est détruit : la corbeille du compte garde tout).
+#[tauri::command]
+pub async fn cleanup_trash(
+    app: AppHandle,
+    account_id: String,
+    criteria: CleanupCriteria,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "grand ménage")?;
+        let query = cleanup_search_query(&criteria)?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let mut session = crate::mail::open_session(&app, &account)?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("Boîte de réception inaccessible : {e}"))?;
+        let mut uids: Vec<u32> = session
+            .uid_search(&query)
+            .map_err(|e| format!("Recherche impossible : {e}"))?
+            .into_iter()
+            .collect();
+        uids.sort_unstable();
+        if uids.is_empty() {
+            return Ok(0);
+        }
+
+        let emit = |done: u32, total: u32| {
+            let _ = app.emit(
+                "apply-progress",
+                ApplyProgress {
+                    done,
+                    total,
+                    label: "Grand ménage".into(),
+                },
+            );
+        };
+        let count = organizer::trash_uids(&mut session, &uids, &busy.cancel, &emit)?;
+        let _ = session.logout();
+
+        let mut desc: Vec<String> = Vec::new();
+        if criteria.older_than_months > 0 {
+            desc.push(format!("plus vieux que {} mois", criteria.older_than_months));
+        }
+        if criteria.unread_only {
+            desc.push("non-lus seulement".into());
+        }
+        if !criteria.query.trim().is_empty() {
+            desc.push(format!("expéditeur : {}", criteria.query.trim()));
+        }
+
+        let mut cfg2 = store::load_config(&app);
+        journal_push(
+            &mut cfg2,
+            JournalEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: account_id.clone(),
+                account_email: account.email.clone(),
+                ts: chrono::Utc::now().timestamp(),
+                kind: "corbeille".into(),
+                archived: 0,
+                junked: 0,
+                trashed: count,
+                restored: 0,
+                labels_created: 0,
+                labels: desc,
             },
         );
         store::save_config(&app, &cfg2);

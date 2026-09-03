@@ -46,6 +46,28 @@ pub fn load_config(app: &AppHandle) -> Config {
     Config::default()
 }
 
+/// Dernière analyse persistée d'un compte (plan + UIDs pour pouvoir ranger).
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct PlanStocke {
+    pub plan: crate::types::Plan,
+    pub uids: std::collections::HashMap<String, crate::mail::classify::GroupUids>,
+}
+
+fn plan_path(app: &AppHandle, account_id: &str) -> PathBuf {
+    data_dir(app).join(format!("plan-{account_id}.json"))
+}
+
+pub fn save_plan(app: &AppHandle, account_id: &str, valeur: &PlanStocke) {
+    if let Ok(json) = serde_json::to_string(valeur) {
+        let _ = fs::write(plan_path(app, account_id), json);
+    }
+}
+
+pub fn load_plan(app: &AppHandle, account_id: &str) -> Option<PlanStocke> {
+    let raw = fs::read_to_string(plan_path(app, account_id)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 pub fn save_config(app: &AppHandle, cfg: &Config) {
     let path = config_path(app);
     if let Ok(json) = serde_json::to_string_pretty(cfg) {

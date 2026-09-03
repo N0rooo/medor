@@ -1,20 +1,20 @@
-# Politique de confidentialité — Rangemail
+# Politique de confidentialité — Médor
 
-*Dernière mise à jour : 1er septembre 2026*
+*Dernière mise à jour : 3 septembre 2026*
 
-Rangemail est une application de bureau qui aide à ranger votre boîte mail (création de
+Médor est une application de bureau qui aide à ranger votre boîte mail (création de
 libellés, archivage des messages déjà lus, repérage des newsletters et des indésirables).
 
 ## Le principe : tout reste sur votre machine
 
-Rangemail **ne possède aucun serveur**. L'application s'exécute entièrement sur votre
+Médor **ne possède aucun serveur**. L'application s'exécute entièrement sur votre
 ordinateur et parle **directement** aux services que vous connectez :
 
 - votre fournisseur de messagerie (Google, Microsoft, Apple ou tout serveur IMAP), via une
   connexion chiffrée TLS ;
 - optionnellement, l'API Claude d'Anthropic si vous activez le classement par IA.
 
-Aucune donnée n'est envoyée au développeur de Rangemail ni à un quelconque intermédiaire.
+Aucune donnée n'est envoyée au développeur de Médor ni à un quelconque intermédiaire.
 
 ## Données traitées
 
@@ -24,8 +24,6 @@ Aucune donnée n'est envoyée au développeur de Rangemail ni à un quelconque i
   s'authentifier.
 - **En-têtes de vos e-mails** (expéditeur, objet, date, statut lu/non-lu, en-têtes de
   désabonnement) : lus pour analyser la boîte. Le **corps des messages n'est jamais lu**.
-- **Réponses au questionnaire de configuration** : stockées localement dans le dossier de
-  données de l'application.
 
 ## Utilisation de l'accès Gmail / Outlook / IMAP
 
@@ -42,10 +40,11 @@ Aucun message n'est supprimé. Aucun e-mail n'est envoyé en votre nom.
 
 ## Classement par IA (optionnel)
 
-Si — et seulement si — vous renseignez votre propre clé API Anthropic, Rangemail envoie à
-l'API Claude, pour classement : nom d'expéditeur, adresse, domaine, quelques objets de
-messages et des statistiques de volume. Jamais le corps des messages, jamais vos
-identifiants. Sans clé, un classement local s'applique et rien ne sort de votre machine.
+Si — et seulement si — vous activez l'IA (votre clé API Anthropic, ou votre abonnement
+Claude Code déjà installé), Médor envoie à Claude, pour classement : nom d'expéditeur,
+adresse, domaine, quelques objets de messages et des statistiques de volume. Jamais le
+corps des messages, jamais vos identifiants. Sans IA, un classement local s'applique et
+rien ne sort de votre machine.
 
 ## Partage et conservation
 
@@ -57,7 +56,7 @@ identifiants. Sans clé, un classement local s'applique et rien ne sort de votre
 
 ## L'utilisation des données reçues des API Google
 
-L'utilisation par Rangemail des informations reçues des API Google respecte la
+L'utilisation par Médor des informations reçues des API Google respecte la
 [Politique relative aux données utilisateur des services d'API Google](https://developers.google.com/terms/api-services-user-data-policy),
 y compris ses exigences d'utilisation limitée (« Limited Use »).
 
