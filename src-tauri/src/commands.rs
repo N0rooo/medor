@@ -1381,7 +1381,10 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
         let (wires, delimiter) = organizer::dossiers_ranges(&mut session)?;
         let mut dossiers: Vec<DossierCompte> = Vec::new();
         for wire in wires {
-            let Ok(mb) = session.status(&wire, "(MESSAGES UNSEEN)") else {
+            // STATUS n'échappe pas le nom de dossier (contrairement à SELECT) :
+            // sans guillemets, une espace dans le nom désynchronise la session.
+            let quoted = format!("\"{}\"", wire.replace('\\', "\\\\").replace('"', "\\\""));
+            let Ok(mb) = session.status(&quoted, "(MESSAGES UNSEEN)") else {
                 continue;
             };
             dossiers.push(DossierCompte {
