@@ -78,13 +78,6 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
   const [couleurs, setCouleurs] = useState<Record<string, string>>({})
   const [enBoucle, setEnBoucle] = useState(false)
   const [armeRangeTout, setArmeRangeTout] = useState(false)
-  // Grand ménage : suppression en masse par critères (serveur, boîte de réception).
-  const [menageMois, setMenageMois] = useState(0)
-  const [menageNonLus, setMenageNonLus] = useState(false)
-  const [menageQuery, setMenageQuery] = useState('')
-  const [menageCompte, setMenageCompte] = useState<number | null>(null)
-  const [menageEnCours, setMenageEnCours] = useState(false)
-  const [menageResultat, setMenageResultat] = useState<string | null>(null)
   /** Copie modifiable des libellés du plan : renommages et réassociations. */
   const [labelsEdit, setLabelsEdit] = useState<PlanLabel[]>([])
 
@@ -479,116 +472,6 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
           )}
         </div>
       )}
-
-      <details className="carte" style={{ marginTop: 14 }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
-          🧹 Grand ménage — supprimer en masse par critères
-        </summary>
-        <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
-          <label>
-            Plus vieux que{' '}
-            <select
-              className="inline"
-              value={menageMois}
-              onChange={(e) => {
-                setMenageMois(Number(e.target.value))
-                setMenageCompte(null)
-              }}
-            >
-              <option value={0}>— peu importe —</option>
-              <option value={6}>6 mois</option>
-              <option value={12}>1 an</option>
-              <option value={24}>2 ans</option>
-              <option value={36}>3 ans</option>
-            </select>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={menageNonLus}
-              onChange={(e) => {
-                setMenageNonLus(e.target.checked)
-                setMenageCompte(null)
-              }}
-            />
-            jamais lus seulement
-          </label>
-          <input
-            className="inline"
-            placeholder="expéditeur ou domaine contient… (optionnel)"
-            value={menageQuery}
-            onChange={(e) => {
-              setMenageQuery(e.target.value)
-              setMenageCompte(null)
-            }}
-            style={{ minWidth: 280 }}
-          />
-        </div>
-        <p className="aide" style={{ marginTop: 10 }}>
-          Cherche dans la boîte de réception. Les mails partent à la corbeille du compte —
-          récupérables pendant ~30 jours, et l'action est tracée au Journal.
-        </p>
-        <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            className="secondaire"
-            disabled={
-              menageEnCours || occupe || (menageMois === 0 && !menageNonLus && !menageQuery.trim())
-            }
-            onClick={async () => {
-              setMenageResultat(null)
-              setMenageEnCours(true)
-              try {
-                setMenageCompte(
-                  await api.cleanupCount(accountId, {
-                    olderThanMonths: menageMois,
-                    unreadOnly: menageNonLus,
-                    query: menageQuery
-                  })
-                )
-              } catch (e) {
-                setMenageResultat(String(e))
-              } finally {
-                setMenageEnCours(false)
-              }
-            }}
-          >
-            Compter d'abord
-          </button>
-          {menageCompte === 0 && <span className="aide">Aucun mail ne correspond.</span>}
-          {menageCompte !== null && menageCompte > 0 && (
-            <button
-              className="danger"
-              disabled={menageEnCours || occupe}
-              onClick={async () => {
-                setMenageEnCours(true)
-                setMenageResultat(null)
-                try {
-                  const n = await api.cleanupTrash(accountId, {
-                    olderThanMonths: menageMois,
-                    unreadOnly: menageNonLus,
-                    query: menageQuery
-                  })
-                  setMenageResultat(`${n.toLocaleString('fr-FR')} mails mis à la corbeille.`)
-                  setMenageCompte(null)
-                } catch (e) {
-                  const m = String(e)
-                  if (!m.includes('annulée')) setMenageResultat(m)
-                } finally {
-                  setMenageEnCours(false)
-                }
-              }}
-            >
-              Mettre {menageCompte.toLocaleString('fr-FR')} mails à la corbeille
-            </button>
-          )}
-          {menageEnCours && <span className="aide">Médor s'active…</span>}
-        </div>
-        {menageResultat && (
-          <p className="info" style={{ marginTop: 10 }}>
-            {menageResultat}
-          </p>
-        )}
-      </details>
 
       {plan && plan.senders.length === 0 && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>

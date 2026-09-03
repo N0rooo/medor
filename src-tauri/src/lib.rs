@@ -87,9 +87,7 @@ pub fn run() {
             commands::auto_pending,
             commands::auto_run_now,
             commands::auto_defer,
-            commands::get_last_plan,
-            commands::cleanup_count,
-            commands::cleanup_trash
+            commands::get_last_plan
         ])
         .build(tauri::generate_context!())
         .expect("erreur au lancement de Médor");
