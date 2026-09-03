@@ -216,6 +216,93 @@ export default function MaBoite({
     }
   }
 
+  /** Une ligne de libellé : case, nom, compteurs, aperçu, suppression. */
+  const ligne = (d: DossierCompte, libelle: string, indent: number) => {
+    const apercu = apercus[d.name]
+    return (
+      <div key={d.name} style={{ marginLeft: indent, marginTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <input
+            type="checkbox"
+            checked={selection[d.name] ?? false}
+            onChange={(e) => setSelection((sel) => ({ ...sel, [d.name]: e.target.checked }))}
+          />
+          <span style={{ flex: 1, minWidth: 160 }}>{libelle}</span>
+          <span className="aide">
+            {d.total.toLocaleString('fr-FR')} mails
+            {d.unseen > 0 ? ` · ${d.unseen.toLocaleString('fr-FR')} non lus` : ''}
+          </span>
+          <button className="discret" onClick={() => voirApercu(d.name)} disabled={d.total === 0}>
+            {apercu ? 'Masquer' : '👁 Aperçu'}
+          </button>
+          {armeVider === d.name ? (
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              <span className="aide">
+                {d.total > 0
+                  ? `Supprimer les ${d.total.toLocaleString('fr-FR')} mails ET le libellé ? (mails récupérables ~30 jours dans la corbeille du compte)`
+                  : 'Supprimer ce libellé vide ?'}
+              </span>
+              <button className="danger" onClick={() => vider(d.name)}>
+                Oui, supprimer
+              </button>
+              <button className="discret" onClick={() => setArmeVider(null)}>
+                Non
+              </button>
+            </span>
+          ) : (
+            <button className="discret" onClick={() => setArmeVider(d.name)} disabled={occupe}>
+              {d.total > 0 ? '🗑️ Supprimer les mails' : '🗑️ Supprimer le libellé'}
+            </button>
+          )}
+        </div>
+        {statuts[d.name] && (
+          <p className="aide" style={{ margin: '4px 0 0' }}>
+            {statuts[d.name]}
+          </p>
+        )}
+        {apercu === 'chargement' && (
+          <p className="aide" style={{ margin: '6px 0 0' }}>
+            Médor renifle ce libellé…
+          </p>
+        )}
+        {Array.isArray(apercu) && (
+          <table className="liste" style={{ marginTop: 8 }}>
+            <tbody>
+              {apercu.map((m, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace: 'nowrap' }} className="aide">
+                    {m.date}
+                  </td>
+                  <td
+                    style={{
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {m.from}
+                  </td>
+                  <td
+                    style={{
+                      maxWidth: 420,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: m.seen ? 400 : 700
+                    }}
+                  >
+                    {m.subject || '(sans objet)'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="colonne">
       <div className="carte ombre">
@@ -356,113 +443,90 @@ export default function MaBoite({
                       </span>
                     </div>
                     {ouvert &&
-                      dossiers.map((d) => {
-                        const sous = d.name.includes('/')
-                          ? d.name.slice(racine.length + 1)
-                          : '(racine)'
-                        const apercu = apercus[d.name]
+                      (() => {
+                        // Regrouper par sous-catégorie : la vraie hiérarchie.
+                        const propreRacine = dossiers.find((d) => d.name === racine)
+                        const sousMap = new Map<
+                          string,
+                          { propre?: DossierCompte; enfants: DossierCompte[] }
+                        >()
+                        for (const d of dossiers) {
+                          if (d.name === racine) continue
+                          const segs = d.name.split('/')
+                          const cle = segs[1]
+                          const entree = sousMap.get(cle) ?? { enfants: [] }
+                          if (segs.length === 2) entree.propre = d
+                          else entree.enfants.push(d)
+                          sousMap.set(cle, entree)
+                        }
                         return (
-                          <div key={d.name} style={{ marginLeft: 34, marginTop: 8 }}>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 10,
-                                flexWrap: 'wrap'
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selection[d.name] ?? false}
-                                onChange={(e) =>
-                                  setSelection((sel) => ({ ...sel, [d.name]: e.target.checked }))
+                          <>
+                            {propreRacine &&
+                              propreRacine.total > 0 &&
+                              ligne(propreRacine, '(mails à la racine)', 34)}
+                            {[...sousMap.entries()]
+                              .sort((a, b) => a[0].localeCompare(b[0], 'fr'))
+                              .map(([sous, { propre, enfants }]) => {
+                                if (enfants.length === 0 && propre) {
+                                  return ligne(propre, sous, 34)
                                 }
-                              />
-                              <span style={{ flex: 1, minWidth: 160 }}>{sous}</span>
-                              <span className="aide">
-                                {d.total.toLocaleString('fr-FR')} mails
-                                {d.unseen > 0 ? ` · ${d.unseen.toLocaleString('fr-FR')} non lus` : ''}
-                              </span>
-                              <button
-                                className="discret"
-                                onClick={() => voirApercu(d.name)}
-                                disabled={d.total === 0}
-                              >
-                                {apercu ? 'Masquer' : '👁 Aperçu'}
-                              </button>
-                              {armeVider === d.name ? (
-                                <span
-                                  style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
-                                >
-                                  <span className="aide">
-                                    {d.total > 0
-                                      ? `Supprimer les ${d.total.toLocaleString('fr-FR')} mails ET le libellé ? (mails récupérables ~30 jours dans la corbeille du compte)`
-                                      : 'Supprimer ce libellé vide ?'}
-                                  </span>
-                                  <button className="danger" onClick={() => vider(d.name)}>
-                                    Oui, supprimer
-                                  </button>
-                                  <button className="discret" onClick={() => setArmeVider(null)}>
-                                    Non
-                                  </button>
-                                </span>
-                              ) : (
-                                <button
-                                  className="discret"
-                                  onClick={() => setArmeVider(d.name)}
-                                  disabled={occupe}
-                                >
-                                  {d.total > 0 ? '🗑️ Supprimer les mails' : '🗑️ Supprimer le libellé'}
-                                </button>
-                              )}
-                            </div>
-                            {statuts[d.name] && (
-                              <p className="aide" style={{ margin: '4px 0 0' }}>
-                                {statuts[d.name]}
-                              </p>
-                            )}
-                            {apercu === 'chargement' && (
-                              <p className="aide" style={{ margin: '6px 0 0' }}>
-                                Médor renifle ce libellé…
-                              </p>
-                            )}
-                            {Array.isArray(apercu) && (
-                              <table className="liste" style={{ marginTop: 8 }}>
-                                <tbody>
-                                  {apercu.map((m, i) => (
-                                    <tr key={i}>
-                                      <td style={{ whiteSpace: 'nowrap' }} className="aide">
-                                        {m.date}
-                                      </td>
-                                      <td
-                                        style={{
-                                          maxWidth: 220,
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap'
+                                const cle2 = `${racine}/${sous}`
+                                const membres = [...(propre ? [propre] : []), ...enfants]
+                                const total2 = membres.reduce((n, d) => n + d.total, 0)
+                                const nonLus2 = membres.reduce((n, d) => n + d.unseen, 0)
+                                const ouvert2 = ouverts[cle2] ?? recherche.trim() !== ''
+                                return (
+                                  <div key={cle2} style={{ marginLeft: 34, marginTop: 8 }}>
+                                    <div
+                                      onClick={() => setOuverts((o) => ({ ...o, [cle2]: !ouvert2 }))}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                        cursor: 'pointer',
+                                        userSelect: 'none'
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={membres.every((d) => selection[d.name])}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          const coche = e.target.checked
+                                          setSelection((sel) => {
+                                            const suivant = { ...sel }
+                                            for (const d of membres) suivant[d.name] = coche
+                                            return suivant
+                                          })
                                         }}
-                                      >
-                                        {m.from}
-                                      </td>
-                                      <td
-                                        style={{
-                                          maxWidth: 420,
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap',
-                                          fontWeight: m.seen ? 400 : 700
-                                        }}
-                                      >
-                                        {m.subject || '(sans objet)'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
+                                      />
+                                      <span style={{ width: 14, textAlign: 'center' }}>
+                                        {ouvert2 ? '▾' : '▸'}
+                                      </span>
+                                      <span style={{ flex: 1, fontWeight: 600 }}>{sous}</span>
+                                      <span className="aide">
+                                        {total2.toLocaleString('fr-FR')} mails
+                                        {nonLus2 > 0
+                                          ? ` · ${nonLus2.toLocaleString('fr-FR')} non lus`
+                                          : ''}
+                                      </span>
+                                    </div>
+                                    {ouvert2 && (
+                                      <>
+                                        {propre && ligne(propre, `(directement dans ${sous})`, 34)}
+                                        {[...enfants]
+                                          .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+                                          .map((d) =>
+                                            ligne(d, d.name.split('/').slice(2).join('/'), 34)
+                                          )}
+                                      </>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                          </>
                         )
-                      })}
+                      })()}
                   </div>
                 )
               })}
