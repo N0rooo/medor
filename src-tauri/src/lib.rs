@@ -91,6 +91,7 @@ pub fn run() {
             commands::get_last_plan,
             commands::rescan_organized,
             commands::mailbox_tree,
+            commands::get_last_tree,
             commands::folder_preview,
             commands::trash_folder
         ])

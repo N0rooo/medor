@@ -1402,10 +1402,26 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
         }
         let _ = session.logout();
         dossiers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        // Persiste : la vue « Ma boîte » se réaffiche instantanément au
+        // prochain lancement, puis se rafraîchit en arrière-plan.
+        store::save_tree(
+            &app,
+            &account_id,
+            &ArbreCompte {
+                dossiers: dossiers.clone(),
+                updated_at: chrono::Utc::now().timestamp(),
+            },
+        );
         Ok(dossiers)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Dernière arborescence connue du compte (persistée sur disque).
+#[tauri::command]
+pub async fn get_last_tree(app: AppHandle, account_id: String) -> Result<Option<ArbreCompte>, String> {
+    Ok(store::load_tree(&app, &account_id))
 }
 
 /// Les derniers mails d'un dossier (aperçu, lecture seule).

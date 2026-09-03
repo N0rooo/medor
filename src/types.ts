@@ -98,6 +98,11 @@ export interface DossierCompte {
   unseen: number
 }
 
+export interface ArbreCompte {
+  dossiers: DossierCompte[]
+  updatedAt: number
+}
+
 export interface JournalEntry {
   id: string
   accountId: string

@@ -68,6 +68,21 @@ pub fn load_plan(app: &AppHandle, account_id: &str) -> Option<PlanStocke> {
     serde_json::from_str(&raw).ok()
 }
 
+fn tree_path(app: &AppHandle, account_id: &str) -> PathBuf {
+    data_dir(app).join(format!("arbre-{account_id}.json"))
+}
+
+pub fn save_tree(app: &AppHandle, account_id: &str, arbre: &crate::types::ArbreCompte) {
+    if let Ok(json) = serde_json::to_string(arbre) {
+        let _ = fs::write(tree_path(app, account_id), json);
+    }
+}
+
+pub fn load_tree(app: &AppHandle, account_id: &str) -> Option<crate::types::ArbreCompte> {
+    let raw = fs::read_to_string(tree_path(app, account_id)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 pub fn save_config(app: &AppHandle, cfg: &Config) {
     let path = config_path(app);
     if let Ok(json) = serde_json::to_string_pretty(cfg) {

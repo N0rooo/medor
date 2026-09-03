@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { ApercuMail, DossierCompte } from '../types'
 import Mascotte from '../Mascotte'
@@ -46,14 +46,20 @@ export default function MaBoite({
   const [armeVider, setArmeVider] = useState<string | null>(null)
   const [statuts, setStatuts] = useState<Record<string, string>>({})
   const [recherche, setRecherche] = useState('')
+  const [majDate, setMajDate] = useState<number | null>(null)
+  /** Une opération vient de se terminer : l'arbre affiché est périmé. */
+  const [perime, setPerime] = useState(false)
+  const occupePrec = useRef(occupe)
 
   const charger = async () => {
     setChargement(true)
     setErreur(null)
     try {
       setArbre(await api.mailboxTree(accountId))
+      setMajDate(Math.floor(Date.now() / 1000))
       setApercus({})
       setStatuts({})
+      setPerime(false)
     } catch (e) {
       setErreur(String(e))
     } finally {
@@ -61,18 +67,41 @@ export default function MaBoite({
     }
   }
 
-  // Premier affichage (ou changement de compte) : on inventorie.
+  // Changement de compte : on réaffiche instantanément l'arbre persisté.
   useEffect(() => {
     setArbre(null)
     setOuverts({})
+    setMajDate(null)
+    let annule = false
+    api
+      .getLastTree(accountId)
+      .then((a) => {
+        if (a && !annule) {
+          setArbre(a.dossiers)
+          setMajDate(a.updatedAt)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      annule = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId])
+
+  // Fin d'une opération (rangement, suppression…) : l'arbre est à rafraîchir.
   useEffect(() => {
-    if (actif && arbre === null && !chargement) {
+    if (occupePrec.current && !occupe) setPerime(true)
+    occupePrec.current = occupe
+  }, [occupe])
+
+  // Visible et (vide ou périmé) : on inventorie — l'ancien arbre reste affiché
+  // pendant le rafraîchissement.
+  useEffect(() => {
+    if (actif && !chargement && !occupe && (arbre === null || perime)) {
       charger()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actif, accountId])
+  }, [actif, accountId, perime, occupe])
 
   const groupes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
@@ -124,6 +153,12 @@ export default function MaBoite({
       setArbre(
         (a) => a?.map((d) => (d.name === nom ? { ...d, total: 0, unseen: 0 } : d)) ?? null
       )
+      // L'aperçu affiché correspond aux mails supprimés : on le retire.
+      setApercus((a) => {
+        const suivant = { ...a }
+        delete suivant[nom]
+        return suivant
+      })
     } catch (e) {
       const m = String(e)
       setStatuts((st) => ({ ...st, [nom]: m.includes('annulée') ? 'Annulé' : m }))
@@ -139,7 +174,11 @@ export default function MaBoite({
             <h2 style={{ margin: 0 }}>Ma boîte</h2>
             <p className="aide" style={{ margin: '2px 0 0' }}>
               {arbre
-                ? `${arbre.length.toLocaleString('fr-FR')} libellés · ${totalMails.toLocaleString('fr-FR')} mails rangés`
+                ? `${arbre.length.toLocaleString('fr-FR')} libellés · ${totalMails.toLocaleString('fr-FR')} mails rangés${
+                    majDate
+                      ? ` · inventaire de ${new Date(majDate * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                      : ''
+                  }`
                 : 'L’arborescence réelle de votre compte, libellé par libellé.'}
             </p>
           </div>

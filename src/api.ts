@@ -7,6 +7,7 @@ import type {
   ApercuMail,
   AppBootstrap,
   ApplyProgress,
+  ArbreCompte,
   ApplyResult,
   ApplySelection,
   BoucleProgress,
@@ -42,6 +43,7 @@ export const api = {
   getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
   rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),
   mailboxTree: (accountId: string) => invoke<DossierCompte[]>('mailbox_tree', { accountId }),
+  getLastTree: (accountId: string) => invoke<ArbreCompte | null>('get_last_tree', { accountId }),
   folderPreview: (accountId: string, folder: string) =>
     invoke<ApercuMail[]>('folder_preview', { accountId, folder }),
   trashFolder: (accountId: string, folder: string) =>

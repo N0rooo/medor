@@ -1,6 +1,6 @@
 [package]
 name = "medor"
-version = "0.2.11"
+version = "0.2.12"
 description = "Médor — le chien qui range votre boîte mail"
 authors = ["Thomas Aubert"]
 edition = "2021"

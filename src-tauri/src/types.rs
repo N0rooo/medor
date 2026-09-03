@@ -174,12 +174,20 @@ pub struct ApercuMail {
 }
 
 /// Un dossier du compte, pour la vue « Ma boîte ».
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct DossierCompte {
     pub name: String,
     pub total: u32,
     pub unseen: u32,
+}
+
+/// Arborescence persistée d'un compte (vue « Ma boîte »).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ArbreCompte {
+    pub dossiers: Vec<DossierCompte>,
+    pub updated_at: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

@@ -1095,7 +1095,7 @@ function Libelles({
 
 // ---------------------------------------------------------------- Newsletters
 
-function Newsletters({
+export function Newsletters({
   plan,
   parCle,
   accountId,
