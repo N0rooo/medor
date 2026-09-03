@@ -107,7 +107,8 @@ export default function Bandeau({
     titre = 'Médor range…'
     note = applique.label ? `${applique.label}` : 'Préparation…'
     if (applique.total > 0) {
-      note += ` — ${applique.done.toLocaleString('fr-FR')}/${applique.total.toLocaleString('fr-FR')} mails`
+      const unite = applique.label.startsWith('Nettoyage') ? 'dossiers' : 'mails'
+      note += ` — ${applique.done.toLocaleString('fr-FR')}/${applique.total.toLocaleString('fr-FR')} ${unite}`
       note += suffixeRestant(applique.done, applique.total)
     }
     pct = applique.total > 0 ? Math.round((applique.done / applique.total) * 100) : null

@@ -1123,7 +1123,7 @@ pub async fn undo_journal_entry(app: AppHandle, entry_id: String) -> Result<Rest
                 ApplyProgress { done, total, label: "Restauration".into() },
             );
         };
-        let result = organizer::restore_to_inbox(&mut session, &entry.labels, &emit)?;
+        let result = organizer::restore_to_inbox(&mut session, Some(entry.labels.clone()), &emit)?;
         let _ = session.logout();
 
         let mut cfg2 = store::load_config(&app);
@@ -1193,13 +1193,10 @@ pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<Restore
             .get(&account_id)
             .cloned()
             .unwrap_or_default();
-        if tracked.is_empty() {
-            return Err(
-                "Médor n'a pas de liste de dossiers créés pour ce compte — rien à annuler \
-                 automatiquement. Les mails restent retrouvables dans les dossiers du compte."
-                    .into(),
-            );
-        }
+        // Liste suivie si Médor l'a ; sinon balayage complet du serveur
+        // (dossiers système exclus) — le suivi se perd quand le compte a été
+        // reconnecté ou que les libellés datent d'une ancienne version.
+        let cible = if tracked.is_empty() { None } else { Some(tracked) };
 
         let mut session = crate::mail::open_session(&app, &account)?;
         let emit = |done: u32, total: u32| {
@@ -1208,7 +1205,7 @@ pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<Restore
                 ApplyProgress { done, total, label: "Restauration".into() },
             );
         };
-        let result = organizer::restore_to_inbox(&mut session, &tracked, &emit)?;
+        let result = organizer::restore_to_inbox(&mut session, cible, &emit)?;
         let _ = session.logout();
 
         let mut cfg2 = store::load_config(&app);

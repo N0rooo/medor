@@ -202,9 +202,12 @@ pub fn apply(
 }
 
 /// Dossiers système qu'on ne supprime jamais, même en mode « tout supprimer ».
-const DOSSIERS_PROTEGES: [&str; 15] = [
-    "inbox", "sent", "sent messages", "drafts", "draft", "junk", "junk email", "spam", "trash",
-    "deleted messages", "deleted", "archive", "notes", "outbox", "all mail",
+const DOSSIERS_PROTEGES: [&str; 27] = [
+    "inbox", "sent", "sent items", "sent messages", "drafts", "draft", "junk", "junk email",
+    "spam", "trash", "deleted messages", "deleted items", "deleted", "archive", "notes",
+    "outbox", "all mail", "clutter", "conversation history", "rss feeds", "rss",
+    "éléments envoyés", "éléments supprimés", "courrier indésirable", "brouillons",
+    "boîte d'envoi", "historique des conversations",
 ];
 
 /// Supprime des libellés/dossiers IMAP.
@@ -248,16 +251,22 @@ pub fn delete_labels(
         None => server_names
             .iter()
             .filter(|wire| {
-                let lower = wire.to_lowercase();
+                let lower = super::utf7::decode(wire).to_lowercase();
                 if lower == "inbox" || lower.starts_with("[gmail]") || lower.starts_with("[google mail]") {
                     return false;
                 }
+                let racine = lower
+                    .split(delimiter.as_str())
+                    .next()
+                    .unwrap_or(&lower)
+                    .to_string();
                 let dernier = lower
                     .rsplit(delimiter.as_str())
                     .next()
                     .unwrap_or(&lower)
                     .to_string();
-                !DOSSIERS_PROTEGES.contains(&dernier.as_str())
+                !(DOSSIERS_PROTEGES.contains(&racine.as_str())
+                    || DOSSIERS_PROTEGES.contains(&dernier.as_str()))
             })
             .cloned()
             .collect(),
@@ -289,7 +298,7 @@ pub fn delete_labels(
 /// Rien n'est jamais supprimé côté mails.
 pub fn restore_to_inbox(
     session: &mut ImapSession,
-    folders_display: &[String],
+    folders_display: Option<Vec<String>>,
     emit: &dyn Fn(u32, u32),
 ) -> Result<RestoreResult, String> {
     let mut result = RestoreResult::default();
@@ -298,27 +307,80 @@ pub fn restore_to_inbox(
         .list(Some(""), Some("*"))
         .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
     let mut delimiter = "/".to_string();
+    let mut server_wires: Vec<String> = Vec::new();
     for name in names.iter() {
         if let Some(d) = name.delimiter() {
             if !d.is_empty() {
                 delimiter = d.to_string();
             }
         }
+        let noselect = name
+            .attributes()
+            .iter()
+            .any(|a| matches!(a, imap::types::NameAttribute::NoSelect));
+        if !noselect {
+            server_wires.push(name.name().to_string());
+        }
     }
     drop(names);
 
+    // Sans liste fournie (suivi perdu : ancienne version, compte reconnecté…),
+    // on balaie TOUT le serveur sauf la boîte de réception et les dossiers
+    // système — c'est le sens du bouton « Tout remettre en boîte de réception ».
+    let liste: Vec<String> = match folders_display {
+        Some(list) => list,
+        None => server_wires
+            .iter()
+            .filter_map(|wire| {
+                let display = super::utf7::decode(wire);
+                let lower = display.to_lowercase();
+                if lower == "inbox"
+                    || lower.starts_with("[gmail]")
+                    || lower.starts_with("[google mail]")
+                {
+                    return None;
+                }
+                let racine = lower
+                    .split(delimiter.as_str())
+                    .next()
+                    .unwrap_or(&lower)
+                    .to_string();
+                let dernier = lower
+                    .rsplit(delimiter.as_str())
+                    .next()
+                    .unwrap_or(&lower)
+                    .to_string();
+                if DOSSIERS_PROTEGES.contains(&racine.as_str())
+                    || DOSSIERS_PROTEGES.contains(&dernier.as_str())
+                {
+                    return None;
+                }
+                Some(display.replace(delimiter.as_str(), "/"))
+            })
+            .collect(),
+    };
+
     // Les plus profonds d'abord : on vide et supprime les enfants avant les parents.
-    let mut folders: Vec<String> = folders_display.to_vec();
+    let mut folders: Vec<String> = liste;
     folders.sort_by_key(|n| std::cmp::Reverse(n.matches('/').count()));
 
-    let total_dossiers = folders.len() as u32;
-    for (index, display) in folders.iter().enumerate() {
-        emit(index as u32, total_dossiers);
+    // Pré-inventaire : total réel de mails à ramener, pour une progression
+    // honnête (en mails, pas en dossiers).
+    let mut par_dossier: Vec<(String, String, u32)> = Vec::new();
+    let mut total_mails: u32 = 0;
+    for display in folders.iter() {
         let wire = utf7::encode(&display.replace('/', &delimiter));
+        let compte = session.select(&wire).map(|mb| mb.exists).unwrap_or(0);
+        total_mails += compte;
+        par_dossier.push((display.clone(), wire, compte));
+    }
+    emit(0, total_mails);
 
-        match session.select(&wire) {
-            Ok(mailbox) => {
-                if mailbox.exists > 0 {
+    let mut done: u32 = 0;
+    for (display, wire, attendu) in par_dossier {
+        if attendu > 0 {
+            match session.select(&wire) {
+                Ok(_) => {
                     let mut uids: Vec<u32> = match session.uid_search("ALL") {
                         Ok(set) => set.into_iter().collect(),
                         Err(e) => {
@@ -339,10 +401,12 @@ pub fn restore_to_inbox(
                                 .errors
                                 .push(format!("Retour depuis « {display} » : {e}")),
                         }
+                        done += chunk.len() as u32;
+                        emit(done.min(total_mails), total_mails);
                     }
                 }
+                Err(_) => continue, // dossier déjà absent : rien à faire
             }
-            Err(_) => continue, // dossier déjà absent : rien à faire
         }
 
         // On ne peut pas supprimer un dossier sélectionné : on repasse sur INBOX.
