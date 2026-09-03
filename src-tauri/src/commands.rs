@@ -1381,16 +1381,23 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
         let (wires, delimiter) = organizer::dossiers_ranges(&mut session)?;
         let mut dossiers: Vec<DossierCompte> = Vec::new();
         for wire in wires {
-            // STATUS n'échappe pas le nom de dossier (contrairement à SELECT) :
-            // sans guillemets, une espace dans le nom désynchronise la session.
-            let quoted = format!("\"{}\"", wire.replace('\\', "\\\\").replace('"', "\\\""));
-            let Ok(mb) = session.status(&quoted, "(MESSAGES UNSEEN)") else {
+            // EXAMINE (SELECT en lecture seule) plutôt que STATUS : le parsing
+            // de STATUS désynchronise la session sur certains serveurs.
+            let Ok(mb) = session.examine(&wire) else {
                 continue;
+            };
+            let unseen = if mb.exists == 0 {
+                0
+            } else {
+                session
+                    .uid_search("UNSEEN")
+                    .map(|set| set.len() as u32)
+                    .unwrap_or(0)
             };
             dossiers.push(DossierCompte {
                 name: crate::mail::utf7::decode(&wire).replace(delimiter.as_str(), "/"),
                 total: mb.exists,
-                unseen: mb.unseen.unwrap_or(0),
+                unseen,
             });
         }
         let _ = session.logout();
