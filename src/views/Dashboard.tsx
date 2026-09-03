@@ -80,6 +80,9 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
   const [armeRangeTout, setArmeRangeTout] = useState(false)
   /** Copie modifiable des libellés du plan : renommages et réassociations. */
   const [labelsEdit, setLabelsEdit] = useState<PlanLabel[]>([])
+  /** Le plan affiché a déjà été appliqué : on garde newsletters et
+   * indésirables accessibles, mais plus de bouton « Appliquer ». */
+  const [rangeFait, setRangeFait] = useState(false)
 
   const dernierEvenement = useRef(0)
   /** Une opération lancée depuis CETTE fenêtre est en cours : le bandeau ne
@@ -164,6 +167,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setSpamCoches(spam)
     setCouleurs(teintes)
     setLabelsEdit(p.labels)
+    setRangeFait(false)
     setPlan(p)
   }
 
@@ -353,7 +357,10 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     try {
       const res = await api.applyPlan(accountId, selection)
       setResultat(res)
-      setPlan(null)
+      // Le plan reste : les onglets Newsletters et Indésirables gardent tout
+      // leur intérêt après le rangement (désabonnements, corbeille…).
+      setRangeFait(true)
+      setOnglet('newsletters')
     } catch (e) {
       const msg = String(e)
       if (!msg.includes('annulée')) setErreur(msg)
@@ -521,9 +528,11 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
           {plan.aiNote && <div className="info">{plan.aiNote}</div>}
 
           <div className="onglets">
-            <button className={onglet === 'libelles' ? 'actif' : ''} onClick={() => setOnglet('libelles')}>
-              Plan de rangement<span className="compteur">{plan.labels.length}</span>
-            </button>
+            {!rangeFait && (
+              <button className={onglet === 'libelles' ? 'actif' : ''} onClick={() => setOnglet('libelles')}>
+                Plan de rangement<span className="compteur">{plan.labels.length}</span>
+              </button>
+            )}
             <button
               className={onglet === 'newsletters' ? 'actif' : ''}
               onClick={() => setOnglet('newsletters')}
@@ -535,7 +544,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             </button>
           </div>
 
-          {onglet === 'libelles' && (
+          {onglet === 'libelles' && !rangeFait && (
             <Libelles
               plan={plan}
               labels={labelsEdit}
@@ -572,6 +581,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             />
           )}
 
+          {!rangeFait && (
           <div className="barre-action">
             <div className="resume">
               <strong>{totalArchivables.toLocaleString('fr-FR')}</strong> mails
@@ -597,6 +607,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               Appliquer le rangement
             </button>
           </div>
+          )}
         </>
       )}
 

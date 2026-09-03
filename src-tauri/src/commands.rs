@@ -1276,7 +1276,11 @@ pub async fn trash_senders(
 ) -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let busy = prendre_verrou(&app, &account_id, "corbeille")?;
-        let uids: Vec<u32> = {
+        let cfg = store::load_config(&app);
+        // Cible par ADRESSE (et libellé de rangement connu), pas par UID :
+        // fonctionne aussi après un rangement, quand les mails ont quitté
+        // la boîte de réception.
+        let cibles: Vec<(String, Option<String>)> = {
             let state = app.state::<AppState>();
             let scans = state.scans.lock().unwrap();
             let cache = scans
@@ -1284,15 +1288,20 @@ pub async fn trash_senders(
                 .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
             sender_keys
                 .iter()
-                .filter_map(|k| cache.uids.get(k))
-                .flat_map(|g| g.all.iter().copied())
+                .filter_map(|k| {
+                    cache
+                        .plan
+                        .senders
+                        .iter()
+                        .find(|s| &s.key == k)
+                        .map(|s| (s.address.clone(), cfg.sender_rules.get(k).cloned()))
+                })
                 .collect()
         };
-        if uids.is_empty() {
+        if cibles.is_empty() {
             return Ok(0);
         }
 
-        let cfg = store::load_config(&app);
         let account = cfg
             .accounts
             .iter()
@@ -1311,7 +1320,8 @@ pub async fn trash_senders(
                 },
             );
         };
-        let count = organizer::trash_uids(&mut session, &uids, &busy.cancel, &emit)?;
+        let count =
+            organizer::trash_senders_by_address(&mut session, &cibles, &busy.cancel, &emit)?;
         let _ = session.logout();
 
         // Ces mails ne sont plus dans la boîte : on les retire du plan en cache.

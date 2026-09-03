@@ -427,19 +427,19 @@ pub fn restore_to_inbox(
     Ok(result)
 }
 
-/// Met à la corbeille du compte tous les messages donnés (récupérables
-/// depuis la corbeille — rien n'est détruit immédiatement).
-pub fn trash_uids(
-    session: &mut ImapSession,
-    uids: &[u32],
-    cancel: &AtomicBool,
-    emit: &dyn Fn(u32, u32),
-) -> Result<u32, String> {
+/// Trouve la corbeille du compte et le délimiteur de dossiers.
+fn dossier_corbeille(session: &mut ImapSession) -> Result<(String, String), String> {
     let names = session
         .list(Some(""), Some("*"))
         .map_err(|e| format!("Impossible de lister les dossiers : {e}"))?;
+    let mut delimiter = "/".to_string();
     let mut trash: Option<String> = None;
     for name in names.iter() {
+        if let Some(d) = name.delimiter() {
+            if !d.is_empty() {
+                delimiter = d.to_string();
+            }
+        }
         let special = name.attributes().iter().any(|a| {
             matches!(a, imap::types::NameAttribute::Custom(c) if c.eq_ignore_ascii_case("\\Trash"))
         });
@@ -455,7 +455,84 @@ pub fn trash_uids(
         }
     }
     let trash = trash.ok_or("Corbeille introuvable sur ce compte.")?;
-    drop(names);
+    Ok((trash, delimiter))
+}
+
+/// Met à la corbeille TOUS les mails d'expéditeurs donnés, où qu'ils soient :
+/// cherche par adresse (FROM) dans la boîte de réception ET dans le libellé où
+/// Médor les a rangés — fonctionne donc aussi APRÈS un rangement.
+pub fn trash_senders_by_address(
+    session: &mut ImapSession,
+    cibles: &[(String, Option<String>)],
+    cancel: &AtomicBool,
+    emit: &dyn Fn(u32, u32),
+) -> Result<u32, String> {
+    let (trash, delimiter) = dossier_corbeille(session)?;
+
+    let mut dossiers: Vec<String> = vec!["INBOX".to_string()];
+    for (_, label) in cibles {
+        if let Some(label) = label {
+            let wire = super::utf7::encode(&label.replace('/', &delimiter));
+            if !dossiers.contains(&wire) {
+                dossiers.push(wire);
+            }
+        }
+    }
+
+    // Pré-inventaire par dossier : total réel pour une progression honnête.
+    let mut travaux: Vec<(String, Vec<u32>)> = Vec::new();
+    let mut total: u32 = 0;
+    for dossier in &dossiers {
+        if session.select(dossier).is_err() {
+            continue;
+        }
+        let mut uids: Vec<u32> = Vec::new();
+        for (adresse, _) in cibles {
+            if let Ok(set) = session.uid_search(format!("FROM \"{}\"", adresse.replace('"', ""))) {
+                uids.extend(set);
+            }
+        }
+        uids.sort_unstable();
+        uids.dedup();
+        total += uids.len() as u32;
+        if !uids.is_empty() {
+            travaux.push((dossier.clone(), uids));
+        }
+    }
+    emit(0, total);
+
+    let mut count: u32 = 0;
+    for (dossier, uids) in travaux {
+        if session.select(&dossier).is_err() {
+            continue;
+        }
+        for chunk in uids.chunks(MOVE_CHUNK) {
+            if cancel.load(Ordering::Relaxed) {
+                return Ok(count);
+            }
+            let set = chunk
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            if move_uids(session, &set, &trash).is_ok() {
+                count += chunk.len() as u32;
+            }
+            emit(count.min(total), total);
+        }
+    }
+    Ok(count)
+}
+
+/// Met à la corbeille du compte tous les messages donnés (récupérables
+/// depuis la corbeille — rien n'est détruit immédiatement).
+pub fn trash_uids(
+    session: &mut ImapSession,
+    uids: &[u32],
+    cancel: &AtomicBool,
+    emit: &dyn Fn(u32, u32),
+) -> Result<u32, String> {
+    let (trash, _) = dossier_corbeille(session)?;
 
     session
         .select("INBOX")
