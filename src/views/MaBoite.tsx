@@ -61,6 +61,9 @@ export default function MaBoite({
   const charger = async () => {
     setChargement(true)
     setErreur(null)
+    // L'inventaire est lui-même une opération : sans ce marqueur, sa propre
+    // fin re-marquerait l'arbre « périmé » (d'où des inventaires en boucle).
+    opLocale.current = true
     try {
       setArbre(await api.mailboxTree(accountId))
       setMajDate(Math.floor(Date.now() / 1000))
@@ -73,6 +76,9 @@ export default function MaBoite({
       if (!m.includes('annulée')) setErreur(m)
     } finally {
       setChargement(false)
+      setTimeout(() => {
+        opLocale.current = false
+      }, 1500)
     }
   }
 
@@ -104,14 +110,15 @@ export default function MaBoite({
     occupePrec.current = occupe
   }, [occupe])
 
-  // Visible et (vide ou périmé) : on inventorie — l'ancien arbre reste affiché
-  // pendant le rafraîchissement.
+  // Auto-inventaire UNIQUEMENT au premier affichage (rien à montrer sinon).
+  // Un arbre périmé affiche une invitation discrète — jamais d'inventaire
+  // surprise qui verrouille le compte une minute.
   useEffect(() => {
-    if (actif && !chargement && !occupe && (arbre === null || perime)) {
+    if (actif && !chargement && !occupe && arbre === null) {
       charger()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actif, accountId, perime, occupe])
+  }, [actif, accountId, occupe])
 
   const groupes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
@@ -333,6 +340,11 @@ export default function MaBoite({
                 : 'L’arborescence réelle de votre compte, libellé par libellé.'}
             </p>
           </div>
+          {perime && arbre !== null && !chargement && (
+            <span className="aide" style={{ fontStyle: 'italic' }}>
+              La boîte a changé depuis cet inventaire
+            </span>
+          )}
           <button className="secondaire" onClick={charger} disabled={chargement || occupe}>
             {chargement ? 'Inventaire…' : '↻ Actualiser'}
           </button>
