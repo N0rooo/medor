@@ -591,6 +591,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               plan={plan}
               parCle={parCle}
               accountId={accountId}
+              occupe={occupe}
               spamCoches={spamCoches}
               setSpamCoches={setSpamCoches}
               progresser={setApplique}
@@ -618,7 +619,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             <button
               className="principal large"
               onClick={appliquer}
-              disabled={totalArchivables + totalSpam === 0 || applique !== null}
+              disabled={occupe || totalArchivables + totalSpam === 0 || applique !== null}
             >
               Appliquer le rangement
             </button>
@@ -1319,7 +1320,7 @@ export function Newsletters({
                   ) : armeSuppr === s.key ? (
                     <>
                       <span className="aide">Mettre les {s.total} mails à la corbeille ?</span>{' '}
-                      <button className="danger" disabled={occupes[s.key]} onClick={() => supprimer(s)}>
+                      <button className="danger" disabled={occupe || occupes[s.key]} onClick={() => supprimer(s)}>
                         Oui
                       </button>{' '}
                       <button className="secondaire" onClick={() => setArmeSuppr(null)}>
@@ -1332,7 +1333,7 @@ export function Newsletters({
                         (s.unsubscribeHttp ? (
                           <button
                             className="danger"
-                            disabled={occupes[s.key]}
+                            disabled={occupe || occupes[s.key]}
                             onClick={() => desabonner(s)}
                           >
                             {occupes[s.key] ? '…' : 'Se désabonner'}
@@ -1348,7 +1349,7 @@ export function Newsletters({
                       <button
                         className="secondaire"
                         title={`Mettre les ${s.total} mails de cet expéditeur à la corbeille`}
-                        disabled={occupes[s.key]}
+                        disabled={occupe || occupes[s.key]}
                         onClick={() => setArmeSuppr(s.key)}
                       >
                         🗑️
@@ -1371,6 +1372,7 @@ function Spam({
   plan,
   parCle,
   accountId,
+  occupe,
   spamCoches,
   setSpamCoches,
   progresser
@@ -1378,6 +1380,7 @@ function Spam({
   plan: Plan
   parCle: Map<string, SenderGroup>
   accountId: string
+  occupe: boolean
   spamCoches: Record<string, boolean>
   setSpamCoches: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   progresser: React.Dispatch<React.SetStateAction<ApplyProgress | null>>
@@ -1457,7 +1460,7 @@ function Spam({
                   <span className="aide">{statuts[s.key]}</span>
                 ) : armeSuppr === s.key ? (
                   <>
-                    <button className="danger" onClick={() => supprimer(s)}>
+                    <button className="danger" disabled={occupe} onClick={() => supprimer(s)}>
                       Oui, corbeille
                     </button>{' '}
                     <button className="secondaire" onClick={() => setArmeSuppr(null)}>

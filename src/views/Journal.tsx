@@ -21,7 +21,7 @@ function resume(e: JournalEntry): string {
   return morceaux.length > 0 ? morceaux.join(' · ') : 'aucun changement'
 }
 
-export default function Journal() {
+export default function Journal({ bloque }: { bloque: boolean }) {
   const [entrees, setEntrees] = useState<JournalEntry[] | null>(null)
   const [arme, setArme] = useState<string | null>(null)
   const [occupe, setOccupe] = useState(false)
@@ -107,7 +107,7 @@ export default function Journal() {
                     Vider les {e.labels.length} libellés de ce rangement vers la boîte de
                     réception ? (les libellés seront supprimés, aucun mail perdu)
                   </span>
-                  <button className="danger" disabled={occupe} onClick={() => annuler(e)}>
+                  <button className="danger" disabled={occupe || bloque} onClick={() => annuler(e)}>
                     {occupe ? 'En cours…' : 'Oui, annuler'}
                   </button>
                   <button className="secondaire" onClick={() => setArme(null)}>
@@ -115,7 +115,7 @@ export default function Journal() {
                   </button>
                 </span>
               ) : (
-                <button className="discret" disabled={occupe} onClick={() => setArme(e.id)}>
+                <button className="discret" disabled={occupe || bloque} onClick={() => setArme(e.id)}>
                   ↩︎ Annuler ce rangement
                 </button>
               )}

@@ -1517,6 +1517,23 @@ pub async fn folder_preview(
     .map_err(|e| e.to_string())?
 }
 
+/// Répercute une suppression de libellés sur l'arbre persisté : on soustrait,
+/// pas besoin de re-inventorier toute la boîte.
+fn arbre_apres_suppression(app: &AppHandle, account_id: &str, vides: &[String], supprimes: &[String]) {
+    if let Some(mut arbre) = store::load_tree(app, account_id) {
+        let ensemble: HashSet<&String> = supprimes.iter().collect();
+        arbre.dossiers.retain(|d| !ensemble.contains(&d.name));
+        for d in arbre.dossiers.iter_mut() {
+            if vides.iter().any(|v| v == &d.name) {
+                d.total = 0;
+                d.unseen = 0;
+            }
+        }
+        arbre.updated_at = chrono::Utc::now().timestamp();
+        store::save_tree(app, account_id, &arbre);
+    }
+}
+
 /// Met à la corbeille tout le contenu d'un libellé (le dossier reste).
 #[tauri::command]
 pub async fn trash_folder(
@@ -1566,6 +1583,12 @@ pub async fn trash_folder(
             },
         );
         store::save_config(&app, &cfg2);
+        let (vides, supprimes): (Vec<String>, Vec<String>) = if folder_deleted {
+            (Vec::new(), vec![folder.clone()])
+        } else {
+            (vec![folder.clone()], Vec::new())
+        };
+        arbre_apres_suppression(&app, &account_id, &vides, &supprimes);
         Ok(VidageResult {
             trashed: count,
             folder_deleted,
@@ -1650,6 +1673,12 @@ pub async fn trash_folders(
             },
         );
         store::save_config(&app, &cfg2);
+        let vides: Vec<String> = folders
+            .iter()
+            .filter(|f| !deleted.contains(f))
+            .cloned()
+            .collect();
+        arbre_apres_suppression(&app, &account_id, &vides, &deleted);
         Ok(VidageMultiple {
             trashed: total_trashed,
             deleted,

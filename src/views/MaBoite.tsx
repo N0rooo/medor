@@ -50,6 +50,9 @@ export default function MaBoite({
   const [selection, setSelection] = useState<Record<string, boolean>>({})
   const [armeSelection, setArmeSelection] = useState(false)
   const [selectionEnCours, setSelectionEnCours] = useState(false)
+  /** Opération lancée depuis CETTE vue : l'arbre est déjà mis à jour par
+   * soustraction, pas besoin de re-inventorier derrière. */
+  const opLocale = useRef(false)
   const [majDate, setMajDate] = useState<number | null>(null)
   /** Une opération vient de se terminer : l'arbre affiché est périmé. */
   const [perime, setPerime] = useState(false)
@@ -94,9 +97,10 @@ export default function MaBoite({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId])
 
-  // Fin d'une opération (rangement, suppression…) : l'arbre est à rafraîchir.
+  // Fin d'une opération EXTERNE (rangement, analyse…) : l'arbre est à
+  // rafraîchir. Nos propres suppressions, elles, soustraient directement.
   useEffect(() => {
-    if (occupePrec.current && !occupe) setPerime(true)
+    if (occupePrec.current && !occupe && !opLocale.current) setPerime(true)
     occupePrec.current = occupe
   }, [occupe])
 
@@ -159,6 +163,7 @@ export default function MaBoite({
   const viderSelection = async () => {
     setArmeSelection(false)
     setSelectionEnCours(true)
+    opLocale.current = true
     try {
       const res = await api.trashFolders(
         accountId,
@@ -182,12 +187,16 @@ export default function MaBoite({
       if (!m.includes('annulée')) setErreur(m)
     } finally {
       setSelectionEnCours(false)
+      setTimeout(() => {
+        opLocale.current = false
+      }, 1500)
     }
   }
 
   const vider = async (nom: string) => {
     setArmeVider(null)
     setStatuts((st) => ({ ...st, [nom]: 'Suppression en cours…' }))
+    opLocale.current = true
     try {
       const res = await api.trashFolder(accountId, nom)
       if (res.folderDeleted) {
@@ -213,6 +222,10 @@ export default function MaBoite({
     } catch (e) {
       const m = String(e)
       setStatuts((st) => ({ ...st, [nom]: m.includes('annulée') ? 'Annulé' : m }))
+    } finally {
+      setTimeout(() => {
+        opLocale.current = false
+      }, 1500)
     }
   }
 
@@ -242,7 +255,7 @@ export default function MaBoite({
                   ? `Supprimer les ${d.total.toLocaleString('fr-FR')} mails ET le libellé ? (mails récupérables ~30 jours dans la corbeille du compte)`
                   : 'Supprimer ce libellé vide ?'}
               </span>
-              <button className="danger" onClick={() => vider(d.name)}>
+              <button className="danger" disabled={occupe} onClick={() => vider(d.name)}>
                 Oui, supprimer
               </button>
               <button className="discret" onClick={() => setArmeVider(null)}>
@@ -320,7 +333,7 @@ export default function MaBoite({
                 : 'L’arborescence réelle de votre compte, libellé par libellé.'}
             </p>
           </div>
-          <button className="secondaire" onClick={charger} disabled={chargement}>
+          <button className="secondaire" onClick={charger} disabled={chargement || occupe}>
             {chargement ? 'Inventaire…' : '↻ Actualiser'}
           </button>
         </div>
@@ -370,7 +383,11 @@ export default function MaBoite({
                       Supprimer les mails ET les libellés sélectionnés ? (mails récupérables ~30
                       jours dans la corbeille du compte)
                     </span>
-                    <button className="danger" disabled={selectionEnCours} onClick={viderSelection}>
+                    <button
+                      className="danger"
+                      disabled={occupe || selectionEnCours}
+                      onClick={viderSelection}
+                    >
                       Oui, tout supprimer
                     </button>
                     <button className="discret" onClick={() => setArmeSelection(false)}>

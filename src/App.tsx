@@ -180,8 +180,8 @@ export default function App() {
             />
           </div>
         )}
-        {vue === 'journal' && <Journal />}
-        {vue === 'reglages' && <Reglages boot={boot} onChanged={rafraichir} />}
+        {vue === 'journal' && <Journal bloque={opsActives > 0} />}
+        {vue === 'reglages' && <Reglages boot={boot} occupe={opsActives > 0} onChanged={rafraichir} />}
         {maj && (
           <div className="popup-auto">
             <div className="popup-auto-tete">

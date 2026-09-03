@@ -5,10 +5,12 @@ import Mascotte from '../Mascotte'
 
 interface Props {
   boot: AppBootstrap
+  /** Une opération est en cours quelque part : maintenance verrouillée. */
+  occupe: boolean
   onChanged: () => Promise<AppBootstrap>
 }
 
-export default function Reglages({ boot, onChanged }: Props) {
+export default function Reglages({ boot, occupe, onChanged }: Props) {
   const [cle, setCle] = useState('')
   const [modele, setModele] = useState(boot.settings.model)
   const [gId, setGId] = useState(boot.settings.googleClientId)
@@ -408,19 +410,19 @@ export default function Reglages({ boot, onChanged }: Props) {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button
                 className="principal"
-                disabled={maintOccupe}
+                disabled={maintOccupe || occupe}
                 onClick={() => setMaintArme('restaurer')}
               >
                 ↩︎ Annuler le rangement : tout remettre en boîte de réception
               </button>
               <button
                 className="danger"
-                disabled={maintOccupe}
+                disabled={maintOccupe || occupe}
                 onClick={() => setMaintArme('rangemail')}
               >
                 Supprimer les libellés créés par Médor
               </button>
-              <button className="danger" disabled={maintOccupe} onClick={() => setMaintArme('tous')}>
+              <button className="danger" disabled={maintOccupe || occupe} onClick={() => setMaintArme('tous')}>
                 Supprimer TOUS les libellés
               </button>
             </div>
@@ -435,7 +437,7 @@ export default function Reglages({ boot, onChanged }: Props) {
                 </span>
                 <button
                   className={maintArme === 'restaurer' ? 'principal' : 'danger'}
-                  disabled={maintOccupe}
+                  disabled={maintOccupe || occupe}
                   onClick={supprimerLibelles}
                 >
                   {maintOccupe
@@ -444,7 +446,7 @@ export default function Reglages({ boot, onChanged }: Props) {
                       ? 'Oui, tout remettre'
                       : 'Oui, supprimer'}
                 </button>
-                <button className="secondaire" disabled={maintOccupe} onClick={() => setMaintArme(null)}>
+                <button className="secondaire" disabled={maintOccupe || occupe} onClick={() => setMaintArme(null)}>
                   Annuler
                 </button>
               </div>
