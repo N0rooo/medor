@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { AccountConfig, AppBootstrap } from './types'
 import Accueil from './views/Accueil'
 import Dashboard from './views/Dashboard'
@@ -6,7 +6,7 @@ import Journal from './views/Journal'
 import Reglages from './views/Reglages'
 import Mascotte from './Mascotte'
 import Bandeau from './Bandeau'
-import { api, onApplyProgress, onBoucleProgress, onScanProgress } from './api'
+import { api, onApplyProgress, onBoucleProgress, onOpEtat, onScanProgress } from './api'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import type { ApplyProgress, BoucleProgress, ScanProgress } from './types'
@@ -26,42 +26,39 @@ export default function App() {
   // Mise à jour de l'app disponible (vérifiée au lancement, choix à l'utilisateur).
   const [maj, setMaj] = useState<Update | null>(null)
   const [majEtat, setMajEtat] = useState<'choix' | 'telechargement' | 'redemarrage'>('choix')
-  const dernierEvt = useRef(0)
-  const dernierFini = useRef(false)
+  // Nombre d'opérations réellement en cours, annoncé par le backend (op-etat)
+  // au moment où il prend/relâche le verrou : le bandeau ne devine plus rien.
+  const [opsActives, setOpsActives] = useState(0)
 
   useEffect(() => {
     const desabos = [
       onScanProgress((p) => {
-        dernierEvt.current = Date.now()
-        dernierFini.current = p.phase === 'ia' && p.total > 0 && p.done >= p.total
         setScanGlobal(p)
         setAppliqueGlobal(null)
       }),
       onApplyProgress((p) => {
-        dernierEvt.current = Date.now()
-        dernierFini.current = p.total > 0 && p.done >= p.total
         setAppliqueGlobal(p)
         setScanGlobal(null)
       }),
-      onBoucleProgress((p) => setBoucleGlobal(p))
+      onBoucleProgress((p) => setBoucleGlobal(p)),
+      onOpEtat((e) => setOpsActives((n) => Math.max(0, n + (e.actif ? 1 : -1))))
     ]
-    // L'opération terminée s'efface vite ; une phase silencieuse (IA, recherche
-    // IMAP) garde le bandeau longtemps avant de conclure à la fin.
-    const gc = setInterval(() => {
-      if (dernierEvt.current === 0) return
-      const silence = Date.now() - dernierEvt.current
-      if (silence > (dernierFini.current ? 2500 : 120000)) {
-        dernierEvt.current = 0
-        setScanGlobal(null)
-        setAppliqueGlobal(null)
-        setBoucleGlobal(null)
-      }
-    }, 1000)
     return () => {
       desabos.forEach((d) => d.then((fn) => fn()))
-      clearInterval(gc)
     }
   }, [])
+
+  // Fin d'opération : on efface le contenu un instant après (le délai absorbe
+  // les micro-transitions de verrou d'un « Range tout » entre deux passes).
+  useEffect(() => {
+    if (opsActives > 0) return
+    const t = setTimeout(() => {
+      setScanGlobal(null)
+      setAppliqueGlobal(null)
+      setBoucleGlobal(null)
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [opsActives])
 
   useEffect(() => {
     check()
@@ -151,6 +148,7 @@ export default function App() {
           <div style={{ display: vue === 'tableau' ? 'block' : 'none' }}>
             <Dashboard
               boot={boot}
+              occupe={opsActives > 0}
               accountId={compteId}
               onSelectAccount={setCompteId}
               onAddAccount={() => setVue('accueil')}
@@ -186,7 +184,7 @@ export default function App() {
             )}
           </div>
         )}
-        {!maj && autoPopup && !scanGlobal && !appliqueGlobal && (
+        {!maj && autoPopup && opsActives === 0 && !scanGlobal && !appliqueGlobal && (
           <div className="popup-auto">
             <div className="popup-auto-tete">
               <Mascotte taille={34} />
@@ -220,7 +218,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {(scanGlobal || appliqueGlobal || boucleGlobal) && (
+        {(opsActives > 0 || scanGlobal || appliqueGlobal || boucleGlobal) && (
           <Bandeau
             scan={scanGlobal}
             applique={appliqueGlobal}

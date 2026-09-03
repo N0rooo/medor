@@ -70,3 +70,14 @@ export function onApplyProgress(cb: (p: ApplyProgress) => void): Promise<() => v
 export function onBoucleProgress(cb: (p: BoucleProgress) => void): Promise<() => void> {
   return listen<BoucleProgress>('boucle-progress', (e) => cb(e.payload))
 }
+
+export interface OpEtat {
+  accountId: string
+  kind: string
+  actif: boolean
+}
+
+/** Début/fin d'opération, annoncés par le backend au moment du verrou. */
+export function onOpEtat(cb: (e: OpEtat) => void): Promise<() => void> {
+  return listen<OpEtat>('op-etat', (e) => cb(e.payload))
+}

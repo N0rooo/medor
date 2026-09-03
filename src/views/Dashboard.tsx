@@ -15,6 +15,8 @@ import Mascotte from '../Mascotte'
 
 interface Props {
   boot: AppBootstrap
+  /** Une opération est en cours quelque part (source : op-etat du backend). */
+  occupe: boolean
   accountId: string
   onSelectAccount: (id: string) => void
   onAddAccount: () => void
@@ -60,7 +62,7 @@ function couleurAuto(nom: string): string {
   return PALETTE[h % PALETTE.length]
 }
 
-export default function Dashboard({ boot, accountId, onSelectAccount, onAddAccount }: Props) {
+export default function Dashboard({ boot, occupe, accountId, onSelectAccount, onAddAccount }: Props) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [scan, setScan] = useState<ScanProgress | null>(null)
   const [applique, setApplique] = useState<ApplyProgress | null>(null)
@@ -413,7 +415,7 @@ export default function Dashboard({ boot, accountId, onSelectAccount, onAddAccou
           <button
             className="principal large"
             onClick={lancerAnalyse}
-            disabled={scan !== null || enBoucle}
+            disabled={occupe || scan !== null || enBoucle}
           >
             Analyser ma boîte
           </button>
@@ -425,7 +427,7 @@ export default function Dashboard({ boot, accountId, onSelectAccount, onAddAccou
             <button
               className="secondaire large"
               onClick={() => setArmeRangeTout(true)}
-              disabled={scan !== null || enBoucle}
+              disabled={occupe || scan !== null || enBoucle}
             >
               🦴 Range tout, tout seul
             </button>

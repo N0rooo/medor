@@ -42,6 +42,7 @@ pub struct AppState {
 struct BusyGuard {
     app: AppHandle,
     id: String,
+    kind: String,
     cancel: Arc<AtomicBool>,
 }
 
@@ -69,9 +70,14 @@ fn prendre_verrou(app: &AppHandle, id: &str, kind: &str) -> Result<BusyGuard, St
             cancel: cancel.clone(),
         },
     );
+    let _ = app.emit(
+        "op-etat",
+        serde_json::json!({ "accountId": id, "kind": kind, "actif": true }),
+    );
     Ok(BusyGuard {
         app: app.clone(),
         id: id.to_string(),
+        kind: kind.to_string(),
         cancel,
     })
 }
@@ -80,6 +86,10 @@ impl Drop for BusyGuard {
     fn drop(&mut self) {
         let state = self.app.state::<AppState>();
         state.ops.lock().unwrap().remove(&self.id);
+        let _ = self.app.emit(
+            "op-etat",
+            serde_json::json!({ "accountId": self.id, "kind": self.kind, "actif": false }),
+        );
     }
 }
 

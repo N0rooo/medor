@@ -18,6 +18,10 @@ export function formatDuree(s: number): string {
 /**
  * LE bandeau d'activité de Médor — le même partout dans l'app, non bloquant,
  * ancré en bas à droite, avec progression et annulation.
+ *
+ * Temps restant : projection figée à chaque progrès réel, avec une marge de
+ * sécurité (mieux vaut finir en avance que voir le chiffre remonter), puis
+ * vrai compte à rebours entre deux. Chrono écoulé sur les phases sans total.
  */
 export default function Bandeau({
   scan,
@@ -32,47 +36,71 @@ export default function Bandeau({
 }) {
   const [annule, setAnnule] = useState(false)
   const [maintenant, setMaintenant] = useState(() => Date.now())
+  const debutOp = useRef(Date.now())
   const debutPhase = useRef(Date.now())
-  const phasePrec = useRef(scan?.phase ?? '')
-  /** Estimation FIGÉE à chaque étape franchie : entre deux, on décompte
-   * vraiment au lieu de reprojeter (sinon le restant… augmente). */
+  const reperePhase = useRef('')
   const etapePrec = useRef(-1)
   const estimeRestant = useRef(0)
   const dateEstime = useRef(Date.now())
-  if (scan && scan.phase !== phasePrec.current) {
-    phasePrec.current = scan.phase
+
+  // Changement de phase (ou de nature d'opération) : on repart de zéro.
+  const repere = scan ? `scan:${scan.phase}` : applique ? 'applique' : ''
+  if (repere !== reperePhase.current) {
+    reperePhase.current = repere
     debutPhase.current = Date.now()
     etapePrec.current = -1
+    estimeRestant.current = 0
   }
-  if (scan && scan.phase === 'ia' && scan.done !== etapePrec.current) {
-    etapePrec.current = scan.done
+
+  // Projection figée au moment où `done` avance. Marge plus large pour l'IA :
+  // les lots parallèles finissent par les plus lents.
+  const cible = scan
+    ? scan.phase === 'ia' || scan.phase === 'lecture'
+      ? scan
+      : null
+    : applique
+  const marge = scan?.phase === 'ia' ? 1.35 : 1.15
+  if (cible && cible.total > 0 && cible.done > 0 && cible.done !== etapePrec.current) {
+    etapePrec.current = cible.done
     dateEstime.current = Date.now()
     estimeRestant.current =
-      scan.done > 0 && scan.total > 0
-        ? (((Date.now() - debutPhase.current) / 1000) * (scan.total - scan.done)) / scan.done
-        : 0
+      (((Date.now() - debutPhase.current) / 1000) * (cible.total - cible.done) * marge) /
+      cible.done
   }
+
   useEffect(() => {
     const t = setInterval(() => setMaintenant(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
 
+  const ecouleOp = Math.max(0, Math.floor((maintenant - debutOp.current) / 1000))
+  const ecoulePhase = Math.max(0, Math.floor((maintenant - debutPhase.current) / 1000))
+  const decompte = Math.round(estimeRestant.current - (maintenant - dateEstime.current) / 1000)
+  /** « ≈ 2 min 10 s restantes », « encore un peu… » si le décompte est à sec,
+   * « ça se termine… » seulement sur la dernière étape. */
+  const suffixeRestant = (done: number, total: number): string => {
+    if (done <= 0 || done >= total) return ''
+    if (decompte > 3) return ` · ≈ ${formatDuree(decompte)} restantes`
+    return done >= total - 1 ? ' · ça se termine…' : ' · encore un peu…'
+  }
+
   let titre = 'Médor s’active…'
-  let note = ''
+  let note = `en cours depuis ${formatDuree(ecouleOp)}`
   let pct: number | null = null
 
   if (scan) {
     titre = 'Médor renifle la boîte…'
     note = PHASES[scan.phase]
-    if (scan.phase === 'lecture' && scan.total > 0) note += ` (${scan.done}/${scan.total})`
-    if (scan.phase === 'ia' && scan.total > 0) {
+    if (scan.phase === 'lecture' && scan.total > 0) {
+      note += ` (${scan.done}/${scan.total})` + suffixeRestant(scan.done, scan.total)
+    } else if (scan.phase === 'ia' && scan.total > 0) {
       note += ` — étape ${scan.done}/${scan.total}`
-      if (scan.done > 0 && scan.done < scan.total) {
-        const restant = Math.round(
-          estimeRestant.current - (maintenant - dateEstime.current) / 1000
-        )
-        note += restant > 3 ? ` · ≈ ${formatDuree(restant)} restantes` : ' · ça se termine…'
-      }
+      note +=
+        scan.done === 0
+          ? ` · lots lancés · ${formatDuree(ecoulePhase)}`
+          : suffixeRestant(scan.done, scan.total)
+    } else {
+      note += ` · ${formatDuree(ecoulePhase)}`
     }
     pct = scan.total > 0 ? Math.round((scan.done / scan.total) * 100) : null
   } else if (applique) {
@@ -80,6 +108,7 @@ export default function Bandeau({
     note = applique.label ? `${applique.label}` : 'Préparation…'
     if (applique.total > 0) {
       note += ` — ${applique.done.toLocaleString('fr-FR')}/${applique.total.toLocaleString('fr-FR')} mails`
+      note += suffixeRestant(applique.done, applique.total)
     }
     pct = applique.total > 0 ? Math.round((applique.done / applique.total) * 100) : null
   }
