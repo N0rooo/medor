@@ -4,10 +4,10 @@ import type { JournalEntry } from '../types'
 import Mascotte from '../Mascotte'
 
 const KINDS: Record<JournalEntry['kind'], { icone: string; titre: string }> = {
-  rangement: { icone: '🗂️', titre: 'Rangement' },
-  auto: { icone: '⏰', titre: 'Rangement automatique' },
-  corbeille: { icone: '🗑️', titre: 'Mise à la corbeille' },
-  restauration: { icone: '↩️', titre: 'Restauration' }
+  rangement: { icone: '•', titre: 'Rangement' },
+  auto: { icone: '•', titre: 'Rangement automatique' },
+  corbeille: { icone: '•', titre: 'Mise à la corbeille' },
+  restauration: { icone: '•', titre: 'Restauration' }
 }
 
 function resume(e: JournalEntry): string {

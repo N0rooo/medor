@@ -213,7 +213,7 @@ export default function MaBoite({
         setStatuts((st) => ({
           ...st,
           [nom]:
-            `🗑️ ${res.trashed.toLocaleString('fr-FR')} mails supprimés (corbeille du compte)` +
+            `${res.trashed.toLocaleString('fr-FR')} mails supprimés (corbeille du compte)` +
             ' · le libellé reste (il a des sous-dossiers)'
         }))
         setArbre(
@@ -253,7 +253,7 @@ export default function MaBoite({
             {d.unseen > 0 ? ` · ${d.unseen.toLocaleString('fr-FR')} non lus` : ''}
           </span>
           <button className="discret" onClick={() => voirApercu(d.name)} disabled={d.total === 0}>
-            {apercu ? 'Masquer' : '👁 Aperçu'}
+            {apercu ? 'Masquer' : 'Aperçu'}
           </button>
           {armeVider === d.name ? (
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
@@ -271,7 +271,7 @@ export default function MaBoite({
             </span>
           ) : (
             <button className="discret" onClick={() => setArmeVider(d.name)} disabled={occupe}>
-              {d.total > 0 ? '🗑️ Supprimer les mails' : '🗑️ Supprimer le libellé'}
+              {d.total > 0 ? 'Supprimer les mails' : 'Supprimer le libellé'}
             </button>
           )}
         </div>
@@ -413,7 +413,7 @@ export default function MaBoite({
                       disabled={occupe || selectionEnCours}
                       onClick={() => setArmeSelection(true)}
                     >
-                      {selectionEnCours ? 'Suppression en cours…' : '🗑️ Supprimer la sélection'}
+                      {selectionEnCours ? 'Suppression en cours…' : 'Supprimer la sélection'}
                     </button>
                     <button className="discret" onClick={() => setSelection({})}>
                       Tout désélectionner

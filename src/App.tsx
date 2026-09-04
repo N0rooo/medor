@@ -251,7 +251,7 @@ export default function App() {
             <div className="popup-auto-tete">
               <Mascotte taille={34} />
               <div>
-                <strong>Pendant votre absence 🐶</strong>
+                <strong>Pendant votre absence</strong>
                 <p>{recap}</p>
               </div>
             </div>

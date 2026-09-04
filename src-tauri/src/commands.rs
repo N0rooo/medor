@@ -151,7 +151,7 @@ fn notifier(app: &AppHandle, corps: &str) {
         return;
     }
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title("Médor 🐶").body(corps).show();
+    let _ = app.notification().builder().title("Médor").body(corps).show();
     if cfg.settings.notify_sound {
         if let Ok(chemin) = app
             .path()

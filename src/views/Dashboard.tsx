@@ -465,7 +465,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               onClick={() => setArmeRangeTout(true)}
               disabled={occupe || scan !== null || enBoucle}
             >
-              🦴 Range tout, tout seul
+              Range tout, tout seul
             </button>
             {armeRangeTout && (
               <div className="info" style={{ marginTop: 14, textAlign: 'left' }}>
@@ -485,7 +485,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
           </div>
           {boot.totalArchived > 0 && (
             <p className="precision" style={{ marginTop: 22, textAlign: 'center', color: 'var(--gris)', fontSize: 13 }}>
-              🦴 Médor a déjà rangé {boot.totalArchived.toLocaleString('fr-FR')} mails pour vous
+              Médor a déjà rangé {boot.totalArchived.toLocaleString('fr-FR')} mails pour vous
             </p>
           )}
         </div>
@@ -494,7 +494,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
       {plan && plan.senders.length === 0 && (
         <div className="carte ombre heros" style={{ paddingBottom: 40 }}>
           <Mascotte taille={72} humeur="joie" style={{ marginBottom: 14 }} />
-          <h1>Rien à ranger 🎉</h1>
+          <h1>Rien à ranger</h1>
           <p className="sous-titre" style={{ maxWidth: 520, margin: '0 auto 24px' }}>
             {plan.scope === 'lus' && 'Aucun mail lu à traiter dans la boîte de réception sur la période analysée.'}
             {plan.scope === 'nonlus' && 'Aucun mail non lu à traiter dans la boîte de réception sur la période analysée.'}
@@ -549,7 +549,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               disabled={occupe || scan !== null}
               onClick={() => setPlan(null)}
             >
-              🔄 Nouvelle analyse
+              Nouvelle analyse
             </button>
           </div>
 
@@ -717,7 +717,7 @@ function Libelles({
         setEdition({ cible, groupe, valeur: cible })
       }}
     >
-      ✏️
+      Renommer
     </button>
   )
 
@@ -887,7 +887,7 @@ function Libelles({
                       voirApercu(k)
                     }}
                   >
-                    👁
+                    Aperçu
                   </button>
                   <span className="nombres">{s.total} mails</span>
                 </div>
@@ -946,7 +946,7 @@ function Libelles({
         )}
         {plan.scope === 'tous' && <>Tous les mails analysés sont concernés, lus comme non lus.</>}{' '}
         La pastille ronde choisit la <strong>couleur</strong> du libellé (appliquée sur Gmail au
-        moment du rangement). ✏️ renomme un libellé ou un groupe (Entrée pour valider — même nom
+        moment du rangement). « Renommer » renomme un libellé ou un groupe (Entrée pour valider — même nom
         qu’un autre = fusion) ; le menu déroulant d’un expéditeur le déplace vers un autre
         libellé.
         <br />
@@ -1115,7 +1115,7 @@ export function Newsletters({
       const n = await api.trashSenders(accountId, [s.key])
       setStatuts((st) => ({
         ...st,
-        [s.key]: n > 0 ? `🗑️ ${n} mails à la corbeille` : '🗑️ rien à déplacer (déjà à la corbeille)'
+        [s.key]: n > 0 ? `Supprimés : ${n} mails (corbeille du compte)` : 'Supprimés : rien à déplacer (déjà à la corbeille)'
       }))
     } catch (e) {
       setStatuts((st) => ({ ...st, [s.key]: String(e) }))
@@ -1129,7 +1129,7 @@ export function Newsletters({
     .map((k) => parCle.get(k))
     .filter((s): s is SenderGroup => Boolean(s))
     // Une newsletter dont les mails viennent d'être supprimés quitte la liste.
-    .filter((s) => !(statuts[s.key] ?? '').startsWith('🗑️'))
+    .filter((s) => !(statuts[s.key] ?? '').startsWith('Supprim'))
     .filter((s) => {
       const q = rechercheNl.trim().toLowerCase()
       return (
@@ -1176,7 +1176,7 @@ export function Newsletters({
 
   // Seuls les expéditeurs déjà passés à la corbeille sortent du pot : un
   // désabonnement ne supprime aucun mail, il ne change donc pas ce total.
-  const restantes = lignes.filter((s) => !(statuts[s.key] ?? '').startsWith('🗑️'))
+  const restantes = lignes.filter((s) => !(statuts[s.key] ?? '').startsWith('Supprim'))
   const desabonnables = restantes.filter(
     (s) => s.unsubscribeHttp && !statuts[s.key] && (s.unsubscribedAt == null || s.stillMailing)
   )
@@ -1222,7 +1222,7 @@ export function Newsletters({
       setStatuts((st) => {
         const suivant = { ...st }
         restantes.forEach((s) => {
-          suivant[s.key] = '🗑️ à la corbeille'
+          suivant[s.key] = 'Supprimés : mails à la corbeille'
         })
         return suivant
       })
@@ -1268,7 +1268,7 @@ export function Newsletters({
             >
               {masseEnCours === 'corbeille'
                 ? 'Mise à la corbeille en cours…'
-                : `🗑️ Tout mettre à la corbeille (${totalMailsRestants.toLocaleString('fr-FR')} mails)`}
+                : `Tout mettre à la corbeille (${totalMailsRestants.toLocaleString('fr-FR')} mails)`}
             </button>
           </>
         ) : (
@@ -1318,7 +1318,7 @@ export function Newsletters({
                   <div>
                     {s.name || s.address}{' '}
                     {s.stillMailing && (
-                      <span className="badge spam">⚠️ écrit encore malgré le désabonnement</span>
+                      <span className="badge spam">écrit encore malgré le désabonnement</span>
                     )}
                     {!s.stillMailing && s.unsubscribedAt != null && (
                       <span className="badge existant">✓ désabonné</span>
@@ -1337,7 +1337,7 @@ export function Newsletters({
                     // cache pas la corbeille, et supprimer n'empêche pas de se
                     // désabonner ensuite.
                     const st = statuts[s.key] ?? ''
-                    const dejaSupprime = st.startsWith('🗑️')
+                    const dejaSupprime = st.startsWith('Supprim')
                     // Un désabonnement enregistré (badge « ✓ désabonné ») masque
                     // aussi le bouton — sauf si l'expéditeur écrit encore.
                     const dejaDesabonne =
@@ -1389,7 +1389,7 @@ export function Newsletters({
                             disabled={occupe || occupes[s.key]}
                             onClick={() => setArmeSuppr(s.key)}
                           >
-                            🗑️
+                            
                           </button>
                         )}
                       </>
@@ -1432,7 +1432,7 @@ function Spam({
     progresser({ done: 0, total: s.total, label: 'Corbeille' })
     try {
       const n = await api.trashSenders(accountId, [s.key])
-      setStatuts((st) => ({ ...st, [s.key]: `🗑️ ${n} à la corbeille` }))
+      setStatuts((st) => ({ ...st, [s.key]: `${n} à la corbeille` }))
       setSpamCoches((prev) => ({ ...prev, [s.key]: false }))
     } catch (e) {
       setStatuts((st) => ({ ...st, [s.key]: String(e) }))
@@ -1512,7 +1512,7 @@ function Spam({
                     title={`Mettre les ${s.total} mails à la corbeille`}
                     onClick={() => setArmeSuppr(s.key)}
                   >
-                    🗑️
+                    
                   </button>
                 )}
               </td>

@@ -315,7 +315,7 @@ export default function Reglages({ boot, occupe, onChanged }: Props) {
           </label>
           {autoPortee !== 'lus' && (
             <div className="erreur" style={{ marginTop: 10 }}>
-              ⚠️ Avec cette portée, les mails <strong>non lus</strong> sont rangés dans leurs
+              Avec cette portée, les mails <strong>non lus</strong> sont rangés dans leurs
               libellés avant que vous les voyiez passer — risque de rater un mail important.
               « Mails déjà lus » est plus prudent : les non-lus restent dans la boîte de
               réception jusqu'à ce que vous les ayez lus, et ne sont rangés qu'ensuite.
@@ -387,11 +387,11 @@ export default function Reglages({ boot, occupe, onChanged }: Props) {
             onChange={(e) =>
               enregistrer(
                 { notifySound: e.target.checked },
-                e.target.checked ? 'Wouf activé. 🐶' : 'Notifications silencieuses.'
+                e.target.checked ? 'Wouf activé. ' : 'Notifications silencieuses.'
               )
             }
           />
-          Jouer un petit « wouf » 🐶
+          Jouer un petit « wouf »
         </label>
       </div>
 
