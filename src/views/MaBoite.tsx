@@ -116,15 +116,21 @@ export default function MaBoite({
     occupePrec.current = occupe
   }, [occupe])
 
-  // Auto-inventaire UNIQUEMENT au premier affichage (rien à montrer sinon).
-  // Un arbre périmé affiche une invitation discrète — jamais d'inventaire
-  // surprise qui verrouille le compte une minute.
+  // Auto-inventaire au premier affichage, et quand l'arbre affiché est VIDE
+  // alors que la boîte a changé depuis (ex. : cliché pris pendant une
+  // restauration) — il n'y a alors rien d'utile à préserver à l'écran.
+  // Sinon, un arbre périmé n'affiche qu'une invitation discrète.
   useEffect(() => {
-    if (actif && !chargement && !occupe && arbre === null) {
+    if (
+      actif &&
+      !chargement &&
+      !occupe &&
+      (arbre === null || (perime && arbre.length === 0))
+    ) {
       charger()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actif, accountId, occupe])
+  }, [actif, accountId, occupe, perime])
 
   const groupes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
@@ -399,8 +405,8 @@ export default function MaBoite({
 
         {arbre && arbre.length === 0 && (
           <p className="aide" style={{ marginTop: 14 }}>
-            Aucun libellé sur ce compte pour l’instant — lancez une analyse depuis le tableau de
-            bord.
+            Aucun libellé sur ce compte pour l’instant — lancez « Analyser et ranger ma boîte »
+            depuis l’accueil.
           </p>
         )}
 

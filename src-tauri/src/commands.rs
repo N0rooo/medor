@@ -1681,7 +1681,10 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
                 vivants.remove(&d.name);
             }
         }
-        if !a_supprimer.is_empty() {
+        // Garde-fou : on ne nettoie les dossiers « vides » que si l'inventaire
+        // a bien su compter (au moins un dossier avec des mails) — jamais de
+        // suppression en masse sur une lecture défaillante.
+        if !a_supprimer.is_empty() && dossiers.iter().any(|d| d.total > 0) {
             if let Ok(mut nettoyage) = crate::mail::open_session(&app, &account) {
                 for nom in &a_supprimer {
                     let wire = crate::mail::utf7::encode(&nom.replace('/', delimiter.as_str()));
