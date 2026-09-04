@@ -28,6 +28,8 @@ export default function Simple({
 }) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [dernier, setDernier] = useState<string | null>(null)
+  const [detailPassage, setDetailPassage] = useState<string[]>([])
+  const [montrerDetail, setMontrerDetail] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [chargement, setChargement] = useState(false)
@@ -53,6 +55,7 @@ export default function Simple({
             })} — ${passage.archived.toLocaleString('fr-FR')} mails rangés`
           : null
       )
+      setDetailPassage(passage?.detail ?? [])
     } catch {
       /* silencieux */
     }
@@ -91,6 +94,7 @@ export default function Simple({
           ? `${res.archived.toLocaleString('fr-FR')} mails rangés. Les non-lus restent dans votre boîte de réception.`
           : 'Rien de nouveau à ranger : votre boîte est déjà propre.'
       )
+      setMontrerDetail(res.archived > 0)
       recharger()
     } catch (e) {
       const m = String(e)
@@ -148,6 +152,19 @@ export default function Simple({
         )}
         {message && <div className="info" style={{ marginTop: 14, textAlign: 'left' }}>{message}</div>}
         {erreur && <div className="erreur" style={{ marginTop: 14, textAlign: 'left' }}>{erreur}</div>}
+        {detailPassage.length > 0 && (
+          <details open={montrerDetail} style={{ marginTop: 12, textAlign: 'left' }}>
+            <summary className="aide" style={{ cursor: 'pointer' }}>
+              Ce que Médor a fait ({detailPassage.length} libellés)
+            </summary>
+            <ul className="aide" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              {detailPassage.slice(0, 15).map((ligne, i) => (
+                <li key={i}>{ligne}</li>
+              ))}
+              {detailPassage.length > 15 && <li>… et {detailPassage.length - 15} autres</li>}
+            </ul>
+          </details>
+        )}
       </div>
 
       <div className="carte ombre">

@@ -12,6 +12,7 @@ import type {
   SenderGroup
 } from '../types'
 import Mascotte from '../Mascotte'
+import { IconePoubelle } from '../Icones'
 
 interface Props {
   boot: AppBootstrap
@@ -1624,7 +1625,7 @@ export function Newsletters({
                             disabled={occupe || occupes[s.key]}
                             onClick={() => setArmeSuppr(s.key)}
                           >
-                            
+                            <IconePoubelle />
                           </button>
                         )}
                       </>
@@ -1747,7 +1748,7 @@ function Spam({
                     title={`Mettre les ${s.total} mails à la corbeille`}
                     onClick={() => setArmeSuppr(s.key)}
                   >
-                    
+                    <IconePoubelle />
                   </button>
                 )}
               </td>
