@@ -188,7 +188,7 @@ export default function App() {
             </button>
             <button className={vue === 'journal' ? 'actif' : ''} onClick={() => setVue('journal')}>
               Journal
-              {journalNonVus > 0 && <span className="pastille">{journalNonVus}</span>}
+              {journalNonVus > 0 && <span className="pastille" />}
             </button>
             <button className={vue === 'reglages' ? 'actif' : ''} onClick={() => setVue('reglages')}>
               Réglages
