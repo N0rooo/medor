@@ -1091,6 +1091,7 @@ fn auto_pass(app: &AppHandle) {
             &cfg.settings.auto_scope,
             cfg.settings.auto_junk,
             false,
+            "auto",
         ) {
             Ok(res) => {
                 archived += res.archived;
@@ -1212,6 +1213,7 @@ fn auto_sort_account(
     scope: &str,
     junk: bool,
     fresh: bool,
+    kind: &str,
 ) -> Result<ApplyResult, String> {
     let plan = scan_blocking(app.clone(), account_id.to_string(), scope.to_string(), fresh)?;
     if plan.senders.is_empty() {
@@ -1244,7 +1246,7 @@ fn auto_sort_account(
             junk_sender_keys: junk_keys,
             label_colors: HashMap::new(),
         },
-        "auto".into(),
+        kind.into(),
     )
 }
 
@@ -1262,7 +1264,8 @@ pub async fn sort_everything(
         for passe in 1..=30u32 {
             // « Repartir de zéro » ne vaut que pour la première tranche : les
             // suivantes réutilisent la taxonomie qu'elle vient de poser.
-            let res = auto_sort_account(&app, &account_id, &scope, false, fresh && passe == 1)?;
+            let res =
+                auto_sort_account(&app, &account_id, &scope, false, fresh && passe == 1, "rangement")?;
             total.archived += res.archived;
             total.junked += res.junked;
             total.labels_created += res.labels_created;
