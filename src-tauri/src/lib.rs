@@ -76,6 +76,7 @@ pub fn run() {
             commands::scan_account,
             commands::apply_plan,
             commands::cancel_operation,
+            commands::ops_actives,
             commands::sort_everything,
             commands::get_journal,
             commands::undo_journal_entry,

@@ -65,16 +65,18 @@ export default function App() {
         setOpsActives((n) => Math.max(0, n + (e.actif ? 1 : -1)))
       })
     ]
-    // Filet de sécurité : si le compteur d'opérations se désynchronise (événement
-    // perdu), un bandeau ne peut pas rester bloqué plus de 10 minutes sans signal.
-    const filet = setInterval(() => {
-      if (Date.now() - dernierSignal.current > 10 * 60_000) {
-        setOpsActives(0)
-      }
-    }, 30_000)
+    // Source de vérité : le backend est sondé régulièrement — un compteur
+    // désynchronisé (événement perdu) se corrige en 2 secondes maximum,
+    // fini les bandeaux fantômes et les boutons morts.
+    const verite = setInterval(() => {
+      api
+        .opsActives()
+        .then(setOpsActives)
+        .catch(() => {})
+    }, 2000)
     return () => {
       desabos.forEach((d) => d.then((fn) => fn()))
-      clearInterval(filet)
+      clearInterval(verite)
     }
   }, [])
 

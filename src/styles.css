@@ -1255,3 +1255,10 @@ details.guide ol {
   background: #c34a3e;
   vertical-align: middle;
 }
+
+/* Tout bouton désactivé se voit : plus de bouton « mort » d'apparence normale. */
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

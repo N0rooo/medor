@@ -1101,7 +1101,10 @@ export function Newsletters({
     progresser({ done: 0, total: s.total, label: 'Corbeille' })
     try {
       const n = await api.trashSenders(accountId, [s.key])
-      setStatuts((st) => ({ ...st, [s.key]: `🗑️ ${n} mails à la corbeille` }))
+      setStatuts((st) => ({
+        ...st,
+        [s.key]: n > 0 ? `🗑️ ${n} mails à la corbeille` : '🗑️ rien à déplacer (déjà à la corbeille)'
+      }))
     } catch (e) {
       setStatuts((st) => ({ ...st, [s.key]: String(e) }))
     } finally {
@@ -1113,6 +1116,8 @@ export function Newsletters({
   const lignes = plan.newsletters
     .map((k) => parCle.get(k))
     .filter((s): s is SenderGroup => Boolean(s))
+    // Une newsletter dont les mails viennent d'être supprimés quitte la liste.
+    .filter((s) => !(statuts[s.key] ?? '').startsWith('🗑️'))
     .filter((s) => {
       const q = rechercheNl.trim().toLowerCase()
       return (

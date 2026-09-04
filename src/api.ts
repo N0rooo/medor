@@ -38,6 +38,7 @@ export const api = {
   msDeviceFinish: () => invoke<AccountConfig>('ms_device_finish'),
   oauthCancel: () => invoke<void>('oauth_cancel'),
   cancelOperation: (accountId: string) => invoke<void>('cancel_operation', { accountId }),
+  opsActives: () => invoke<number>('ops_actives'),
   autoPending: () => invoke<boolean>('auto_pending'),
   autoRunNow: () => invoke<void>('auto_run_now'),
   autoDefer: () => invoke<void>('auto_defer'),

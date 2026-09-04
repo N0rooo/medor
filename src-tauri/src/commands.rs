@@ -93,6 +93,12 @@ impl Drop for BusyGuard {
     }
 }
 
+/// Nombre d'opérations réellement en cours (source de vérité pour l'interface).
+#[tauri::command]
+pub fn ops_actives(app: AppHandle) -> u32 {
+    app.state::<AppState>().ops.lock().unwrap().len() as u32
+}
+
 /// Annule l'opération en cours sur un compte (effet entre deux paquets).
 #[tauri::command]
 pub async fn cancel_operation(app: AppHandle, account_id: String) -> Result<(), String> {
