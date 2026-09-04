@@ -4,7 +4,7 @@ import Accueil from './views/Accueil'
 import Dashboard from './views/Dashboard'
 import Journal from './views/Journal'
 import MaBoite from './views/MaBoite'
-import NewslettersVue from './views/NewslettersVue'
+import Simple from './views/Simple'
 import Reglages from './views/Reglages'
 import Mascotte from './Mascotte'
 import Bandeau from './Bandeau'
@@ -13,7 +13,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import type { ApplyProgress, BoucleProgress, ScanProgress } from './types'
 
-type Vue = 'accueil' | 'tableau' | 'boite' | 'newsletters' | 'journal' | 'reglages'
+type Vue = 'accueil' | 'simple' | 'tableau' | 'boite' | 'journal' | 'reglages'
 
 export default function App() {
   const [boot, setBoot] = useState<AppBootstrap | null>(null)
@@ -120,7 +120,7 @@ export default function App() {
 
   useEffect(() => {
     rafraichir().then((state) => {
-      setVue(state.accounts.length === 0 ? 'accueil' : 'tableau')
+      setVue(state.accounts.length === 0 ? 'accueil' : 'simple')
       setCompteId(state.accounts[0]?.id ?? null)
     })
     // Récap d'absence : ce que Médor a fait depuis la dernière fois qu'on a
@@ -172,7 +172,7 @@ export default function App() {
   const compteAjoute = async (compte: AccountConfig) => {
     await rafraichir()
     setCompteId(compte.id)
-    setVue('tableau')
+    setVue('simple')
   }
 
   const navVisible = boot.accounts.length > 0
@@ -188,20 +188,11 @@ export default function App() {
         </div>
         {navVisible && (
           <nav>
-            <button className={vue === 'tableau' ? 'actif' : ''} onClick={() => setVue('tableau')}>
-              Tableau de bord
+            <button className={vue === 'simple' ? 'actif' : ''} onClick={() => setVue('simple')}>
+              Accueil
             </button>
             <button className={vue === 'boite' ? 'actif' : ''} onClick={() => setVue('boite')}>
               Ma boîte
-            </button>
-            <button
-              className={vue === 'newsletters' ? 'actif' : ''}
-              onClick={() => setVue('newsletters')}
-            >
-              Newsletters
-            </button>
-            <button className={vue === 'accueil' ? 'actif' : ''} onClick={() => setVue('accueil')}>
-              Comptes
             </button>
             <button className={vue === 'journal' ? 'actif' : ''} onClick={() => setVue('journal')}>
               Journal
@@ -236,11 +227,15 @@ export default function App() {
           </div>
         )}
         {compteId && (
-          <div style={{ display: vue === 'newsletters' ? 'block' : 'none' }}>
-            <NewslettersVue
+          <div style={{ display: vue === 'simple' ? 'block' : 'none' }}>
+            <Simple
+              boot={boot}
               accountId={compteId}
               occupe={opsActives > 0}
-              actif={vue === 'newsletters'}
+              actif={vue === 'simple'}
+              onSelectAccount={setCompteId}
+              onAddAccount={() => setVue('accueil')}
+              onOuvrirAvance={() => setVue('tableau')}
             />
           </div>
         )}
