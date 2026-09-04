@@ -797,6 +797,7 @@ fn build_plan(
         scope,
         existing_labels,
         scanned_at: chrono::Utc::now().timestamp(),
+        applied: false,
     }
 }
 
@@ -929,6 +930,13 @@ fn apply_blocking(
             },
         );
         store::save_config(&app, &cfg);
+
+        // Le plan persisté correspond maintenant à un rangement déjà fait :
+        // au prochain lancement, pas de bouton « Appliquer » fantôme.
+        if let Some(mut stocke) = store::load_plan(&app, &account_id) {
+            stocke.plan.applied = true;
+            store::save_plan(&app, &account_id, &stocke);
+        }
 
         // Le plan ne correspond plus à l'état de la boîte : on invalide le cache.
         let state = app.state::<AppState>();
@@ -1864,7 +1872,7 @@ pub async fn rescan_organized(app: AppHandle, account_id: String) -> Result<Plan
                 group.still_mailing = group.last_ts > ts + 3 * 86400;
             }
         }
-        let plan = build_plan(
+        let mut plan = build_plan(
             &account_id,
             messages.len() as u32,
             0,
@@ -1874,6 +1882,7 @@ pub async fn rescan_organized(app: AppHandle, account_id: String) -> Result<Plan
             "rangés".into(),
             Vec::new(),
         );
+        plan.applied = true;
         // UIDs volontairement vides : ce plan alimente les onglets Newsletters
         // et Indésirables, il ne doit jamais re-déplacer de mails.
         store::save_plan(

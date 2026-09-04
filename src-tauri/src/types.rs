@@ -257,6 +257,9 @@ pub struct Plan {
     /// Date de l'analyse (epoch s) — sert au rappel « analyse du … ».
     #[serde(default)]
     pub scanned_at: i64,
+    /// Le rangement de ce plan a déjà été appliqué (passe auto, Range tout…).
+    #[serde(default)]
+    pub applied: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]

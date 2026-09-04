@@ -169,7 +169,7 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setSpamCoches(spam)
     setCouleurs(teintes)
     setLabelsEdit(p.labels)
-    setRangeFait(false)
+    setRangeFait(p.applied ?? false)
     setInfoAnalyse(null)
     setPlan(p)
   }

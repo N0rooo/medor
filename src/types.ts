@@ -142,6 +142,7 @@ export interface PlanLabel {
 
 export interface Plan {
   scannedAt?: number
+  applied?: boolean
   accountId: string
   scanned: number
   inboxTotal: number
