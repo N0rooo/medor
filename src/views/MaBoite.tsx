@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import type { ApercuMail, DossierCompte } from '../types'
+import type { ApercuMail, AppBootstrap, DossierCompte } from '../types'
 import Mascotte from '../Mascotte'
 
 /* Même palette que le tableau de bord pour les pastilles de racines. */
@@ -30,13 +30,19 @@ function couleurAuto(nom: string): string {
  * libellé, aperçu des derniers mails, et vidage d'un libellé vers la corbeille.
  */
 export default function MaBoite({
+  boot,
   accountId,
   occupe,
-  actif
+  actif,
+  onSelectAccount,
+  onAddAccount
 }: {
+  boot: AppBootstrap
   accountId: string
   occupe: boolean
   actif: boolean
+  onSelectAccount: (id: string) => void
+  onAddAccount: () => void
 }) {
   const [arbre, setArbre] = useState<DossierCompte[] | null>(null)
   const [chargement, setChargement] = useState(false)
@@ -345,6 +351,20 @@ export default function MaBoite({
 
   return (
     <div className="colonne">
+      <div className="barre-comptes">
+        {boot.accounts.map((a) => (
+          <button
+            key={a.id}
+            className={`compte-jeton ${a.id === accountId ? 'choisi' : ''}`}
+            onClick={() => onSelectAccount(a.id)}
+          >
+            {a.email}
+          </button>
+        ))}
+        <button className="discret" onClick={onAddAccount}>
+          + Ajouter un compte
+        </button>
+      </div>
       <div className="carte ombre">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Mascotte taille={40} />

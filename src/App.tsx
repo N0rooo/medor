@@ -244,7 +244,14 @@ export default function App() {
         )}
         {compteId && (
           <div style={{ display: vue === 'boite' ? 'block' : 'none' }}>
-            <MaBoite accountId={compteId} occupe={opsActives > 0} actif={vue === 'boite'} />
+            <MaBoite
+              boot={boot}
+              accountId={compteId}
+              occupe={opsActives > 0}
+              actif={vue === 'boite'}
+              onSelectAccount={setCompteId}
+              onAddAccount={() => setVue('accueil')}
+            />
           </div>
         )}
         {compteId && (
