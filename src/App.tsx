@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AccountConfig, AppBootstrap } from './types'
 import Accueil from './views/Accueil'
 import Dashboard from './views/Dashboard'
@@ -45,21 +45,36 @@ export default function App() {
     }
   }, [])
 
+  const dernierSignal = useRef(Date.now())
+
   useEffect(() => {
     const desabos = [
       onScanProgress((p) => {
+        dernierSignal.current = Date.now()
         setScanGlobal(p)
         setAppliqueGlobal(null)
       }),
       onApplyProgress((p) => {
+        dernierSignal.current = Date.now()
         setAppliqueGlobal(p)
         setScanGlobal(null)
       }),
       onBoucleProgress((p) => setBoucleGlobal(p)),
-      onOpEtat((e) => setOpsActives((n) => Math.max(0, n + (e.actif ? 1 : -1))))
+      onOpEtat((e) => {
+        dernierSignal.current = Date.now()
+        setOpsActives((n) => Math.max(0, n + (e.actif ? 1 : -1)))
+      })
     ]
+    // Filet de sécurité : si le compteur d'opérations se désynchronise (événement
+    // perdu), un bandeau ne peut pas rester bloqué plus de 10 minutes sans signal.
+    const filet = setInterval(() => {
+      if (Date.now() - dernierSignal.current > 10 * 60_000) {
+        setOpsActives(0)
+      }
+    }, 30_000)
     return () => {
       desabos.forEach((d) => d.then((fn) => fn()))
+      clearInterval(filet)
     }
   }, [])
 

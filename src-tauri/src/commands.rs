@@ -725,6 +725,30 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
     Ok(plan)
 }
 
+/// Garantit que l'analyse du compte est en cache mémoire (recharge depuis le
+/// disque quand un rangement l'a invalidée) et renvoie son plan.
+fn assurer_cache_plan(app: &AppHandle, account_id: &str) -> Result<Plan, String> {
+    let state = app.state::<AppState>();
+    {
+        let scans = state.scans.lock().unwrap();
+        if let Some(c) = scans.get(account_id) {
+            return Ok(c.plan.clone());
+        }
+    }
+    if let Some(stocke) = store::load_plan(app, account_id) {
+        let plan = stocke.plan.clone();
+        state.scans.lock().unwrap().insert(
+            account_id.to_string(),
+            ScanCache {
+                uids: stocke.uids,
+                plan: stocke.plan,
+            },
+        );
+        return Ok(plan);
+    }
+    Err("Analyse introuvable : relancez une analyse de la boîte.".into())
+}
+
 /// Dernière analyse connue du compte (mémoire, sinon disque) — recharge aussi
 /// les UIDs pour que « Ranger » fonctionne après un redémarrage.
 #[tauri::command]
@@ -1373,24 +1397,17 @@ pub async fn trash_senders(
         // Cible par ADRESSE (et libellé de rangement connu), pas par UID :
         // fonctionne aussi après un rangement, quand les mails ont quitté
         // la boîte de réception.
-        let cibles: Vec<(String, Option<String>)> = {
-            let state = app.state::<AppState>();
-            let scans = state.scans.lock().unwrap();
-            let cache = scans
-                .get(&account_id)
-                .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
-            sender_keys
-                .iter()
-                .filter_map(|k| {
-                    cache
-                        .plan
-                        .senders
-                        .iter()
-                        .find(|s| &s.key == k)
-                        .map(|s| (s.address.clone(), cfg.sender_rules.get(k).cloned()))
-                })
-                .collect()
-        };
+        let plan_courant = assurer_cache_plan(&app, &account_id)?;
+        let cibles: Vec<(String, Option<String>)> = sender_keys
+            .iter()
+            .filter_map(|k| {
+                plan_courant
+                    .senders
+                    .iter()
+                    .find(|s| &s.key == k)
+                    .map(|s| (s.address.clone(), cfg.sender_rules.get(k).cloned()))
+            })
+            .collect();
         if cibles.is_empty() {
             return Ok(0);
         }
@@ -1984,20 +2001,12 @@ fn unsubscribe_sender(
     client: &reqwest::blocking::Client,
 ) -> Result<UnsubscribeResult, String> {
     {
-        let sender = {
-            let state = app.state::<AppState>();
-            let scans = state.scans.lock().unwrap();
-            let cache = scans
-                .get(account_id)
-                .ok_or("Analyse expirée : relancez l'analyse de la boîte.")?;
-            cache
-                .plan
-                .senders
-                .iter()
-                .find(|s| s.key == sender_key)
-                .cloned()
-                .ok_or("Expéditeur introuvable dans la dernière analyse.")?
-        };
+        let sender = assurer_cache_plan(app, account_id)?
+            .senders
+            .iter()
+            .find(|s| s.key == sender_key)
+            .cloned()
+            .ok_or("Expéditeur introuvable dans la dernière analyse.")?;
 
         let Some(url) = sender.unsubscribe_http.clone() else {
             return Ok(UnsubscribeResult {
