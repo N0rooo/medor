@@ -83,6 +83,12 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
   /** Le plan affiché a déjà été appliqué : on garde newsletters et
    * indésirables accessibles, mais plus de bouton « Appliquer ». */
   const [rangeFait, setRangeFait] = useState(false)
+  /** Étape 1 de l'analyse : le tri « ça vaut la peine / on s'en fout ». */
+  const [etapeTriage, setEtapeTriage] = useState(false)
+  const [triage, setTriage] = useState<Record<string, 'utile' | 'inutile'>>({})
+  const [actionInutiles, setActionInutiles] = useState<'newsletters' | 'ignorer' | 'supprimer'>(
+    'newsletters'
+  )
   /** Note informative après une analyse qui n'a rien trouvé de nouveau. */
   const [infoAnalyse, setInfoAnalyse] = useState<string | null>(null)
 
@@ -151,8 +157,16 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     return map
   }, [plan])
 
+  /** Un expéditeur qui ne vaut pas la peine d'être trié finement. */
+  const sansInteret = (s: SenderGroup): boolean =>
+    s.isNewsletter ||
+    s.spamSuspect ||
+    /^(no-?reply|notifications?|do-?not-?reply|donotreply|mailer|newsletters?|news|info)@/i.test(
+      s.address
+    )
+
   /** Adopte un plan (analyse fraîche ou rechargée du disque) : coches, couleurs, copie éditable. */
-  const adopterPlan = (p: Plan) => {
+  const adopterPlan = (p: Plan, avecTriage = true) => {
     const libelles: Record<string, boolean> = {}
     for (const l of p.labels) {
       libelles[l.name] = l.name !== 'À trier'
@@ -171,7 +185,63 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
     setLabelsEdit(p.labels)
     setRangeFait(p.applied ?? false)
     setInfoAnalyse(null)
+    // Étape de tri : uniquement pour un plan pas encore appliqué.
+    const verdict: Record<string, 'utile' | 'inutile'> = {}
+    for (const sender of p.senders) {
+      verdict[sender.key] = sansInteret(sender) ? 'inutile' : 'utile'
+    }
+    setTriage(verdict)
+    setActionInutiles('newsletters')
+    setEtapeTriage(avecTriage && !(p.applied ?? false) && p.senders.length > 0)
     setPlan(p)
+  }
+
+  const utiles = useMemo(
+    () => (plan?.senders ?? []).filter((s) => triage[s.key] !== 'inutile'),
+    [plan, triage]
+  )
+  const inutiles = useMemo(
+    () => (plan?.senders ?? []).filter((s) => triage[s.key] === 'inutile'),
+    [plan, triage]
+  )
+
+  const validerTriage = async () => {
+    const cles = inutiles.map((s) => s.key)
+    if (actionInutiles === 'supprimer' && cles.length > 0) {
+      try {
+        await api.trashSenders(accountId, cles)
+        const p = await api.getLastPlan(accountId)
+        if (p) adopterPlan(p, false)
+      } catch (e) {
+        const m = String(e)
+        if (!m.includes('annulée')) setErreur(m)
+        return
+      }
+    } else if (actionInutiles === 'ignorer' && cles.length > 0) {
+      setExpediteursCoches((prev) => {
+        const suivant = { ...prev }
+        for (const k of cles) suivant[k] = false
+        return suivant
+      })
+    } else if (actionInutiles === 'newsletters' && cles.length > 0) {
+      const ensemble = new Set(cles)
+      setLabelsEdit((prev) => {
+        const sans = prev.map((l) => ({
+          ...l,
+          senderKeys: l.senderKeys.filter((k) => !ensemble.has(k))
+        }))
+        const idx = sans.findIndex((l) => l.name === 'Newsletters')
+        if (idx >= 0) {
+          sans[idx] = { ...sans[idx], senderKeys: [...sans[idx].senderKeys, ...cles] }
+        } else {
+          sans.push({ name: 'Newsletters', senderKeys: cles, readCount: 0, totalCount: 0 })
+        }
+        return recalcule(sans)
+      })
+      setLibellesCoches((prev) => ({ ...prev, Newsletters: true }))
+    }
+    setEtapeTriage(false)
+    setOnglet('libelles')
   }
 
   const lancerAnalyse = async () => {
@@ -553,6 +623,169 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             </button>
           </div>
 
+          {etapeTriage && (
+            <div style={{ marginTop: 16 }}>
+              <div className="info">
+                Médor a fait le tri : en haut ce qui vaut la peine d'être rangé, en bas ce dont
+                on se fiche. Déplacez ce que vous voulez, choisissez le sort des « sans
+                intérêt », puis validez pour voir le plan de rangement.
+              </div>
+
+              <h3 style={{ margin: '18px 0 6px' }}>
+                Ça vaut la peine ({utiles.length} expéditeurs ·{' '}
+                {utiles.reduce((n, x) => n + x.total, 0).toLocaleString('fr-FR')} mails)
+              </h3>
+              <div
+                style={{
+                  maxHeight: 280,
+                  overflowY: 'auto',
+                  border: '1px solid var(--ligne)',
+                  borderRadius: 10,
+                  padding: '2px 14px'
+                }}
+              >
+                {utiles.map((x) => (
+                  <div
+                    key={x.key}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'center',
+                      padding: '7px 0',
+                      borderBottom: '1px solid var(--ligne)'
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {x.name || x.address}{' '}
+                      <span className="mono" style={{ color: 'var(--gris)', fontSize: 12 }}>
+                        {x.address}
+                      </span>
+                    </span>
+                    <span className="aide" style={{ whiteSpace: 'nowrap' }}>
+                      {x.total.toLocaleString('fr-FR')} mails
+                    </span>
+                    {x.label && <span className="badge existant">{x.label}</span>}
+                    <button
+                      className="discret"
+                      onClick={() => setTriage((t) => ({ ...t, [x.key]: 'inutile' }))}
+                    >
+                      Sans intérêt
+                    </button>
+                  </div>
+                ))}
+                {utiles.length === 0 && (
+                  <p className="aide" style={{ margin: '10px 0' }}>
+                    Rien pour l'instant — remontez des expéditeurs depuis la liste du bas.
+                  </p>
+                )}
+              </div>
+
+              <h3 style={{ margin: '18px 0 6px' }}>
+                On s'en fout ({inutiles.length} expéditeurs ·{' '}
+                {inutiles.reduce((n, x) => n + x.total, 0).toLocaleString('fr-FR')} mails)
+              </h3>
+              <div
+                style={{
+                  maxHeight: 280,
+                  overflowY: 'auto',
+                  border: '1px solid var(--ligne)',
+                  borderRadius: 10,
+                  padding: '2px 14px'
+                }}
+              >
+                {inutiles.map((x) => (
+                  <div
+                    key={x.key}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'center',
+                      padding: '7px 0',
+                      borderBottom: '1px solid var(--ligne)'
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {x.name || x.address}{' '}
+                      <span className="mono" style={{ color: 'var(--gris)', fontSize: 12 }}>
+                        {x.address}
+                      </span>
+                    </span>
+                    <span className="aide" style={{ whiteSpace: 'nowrap' }}>
+                      {x.total.toLocaleString('fr-FR')} mails
+                    </span>
+                    {x.isNewsletter && <span className="badge existant">newsletter</span>}
+                    <button
+                      className="discret"
+                      onClick={() => setTriage((t) => ({ ...t, [x.key]: 'utile' }))}
+                    >
+                      À trier quand même
+                    </button>
+                  </div>
+                ))}
+                {inutiles.length === 0 && (
+                  <p className="aide" style={{ margin: '10px 0' }}>
+                    Rien — tout vaut la peine d'être trié.
+                  </p>
+                )}
+              </div>
+
+              <div className="carte" style={{ marginTop: 16 }}>
+                <strong>Que faire des « sans intérêt » ?</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '10px 0 14px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      checked={actionInutiles === 'newsletters'}
+                      onChange={() => setActionInutiles('newsletters')}
+                    />
+                    Les ranger tous dans « Newsletters » (recommandé — un seul dossier, pas de tri fin)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      checked={actionInutiles === 'ignorer'}
+                      onChange={() => setActionInutiles('ignorer')}
+                    />
+                    Ne pas y toucher — ils restent où ils sont
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      checked={actionInutiles === 'supprimer'}
+                      onChange={() => setActionInutiles('supprimer')}
+                    />
+                    Supprimer tous leurs mails (corbeille du compte, récupérable ~30 jours)
+                  </label>
+                </div>
+                <button className="principal" onClick={validerTriage} disabled={occupe}>
+                  {actionInutiles === 'supprimer' && inutiles.length > 0
+                    ? `Valider le tri (et supprimer ${inutiles
+                        .reduce((n, x) => n + x.total, 0)
+                        .toLocaleString('fr-FR')} mails)`
+                    : 'Valider le tri et voir le plan'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!etapeTriage && (
+          <>
           <div className="onglets">
             {!rangeFait && (
               <button className={onglet === 'libelles' ? 'actif' : ''} onClick={() => setOnglet('libelles')}>
@@ -636,6 +869,8 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
               Appliquer le rangement
             </button>
           </div>
+          )}
+          </>
           )}
         </>
       )}
