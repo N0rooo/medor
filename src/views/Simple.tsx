@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import type { AppBootstrap, ApplyProgress, JournalEntry, Plan, SenderGroup } from '../types'
-import { Newsletters } from './Dashboard'
+import type { AppBootstrap, JournalEntry, Plan, SenderGroup } from '../types'
 import Mascotte from '../Mascotte'
 import CompteRendu from '../CompteRendu'
 
@@ -34,8 +33,6 @@ export default function Simple({
   const [erreur, setErreur] = useState<string | null>(null)
   const [chargement, setChargement] = useState(false)
   const occupePrec = useRef(occupe)
-
-  const noop: React.Dispatch<React.SetStateAction<ApplyProgress | null>> = () => {}
 
   const recharger = async () => {
     try {
@@ -204,8 +201,6 @@ export default function Simple({
     }
   }
 
-  const newsletters = plan?.newsletters.length ?? 0
-
   return (
     <div className="colonne">
       <div className="barre-comptes">
@@ -332,8 +327,12 @@ export default function Simple({
                     {s.address}
                   </span>
                 </span>
+                {s.stillMailing && (
+                  <span className="badge spam">écrit encore</span>
+                )}
                 <span className="aide" style={{ whiteSpace: 'nowrap' }}>
-                  {s.total.toLocaleString('fr-FR')} mails
+                  {s.total.toLocaleString('fr-FR')} mails ·{' '}
+                  {s.total > 0 ? Math.round((s.read / s.total) * 100) : 0} % lus
                 </span>
               </label>
             ))}
@@ -354,42 +353,11 @@ export default function Simple({
         </div>
       )}
 
-      <div className="carte ombre">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <h2 style={{ margin: 0 }}>Newsletters</h2>
-            <p className="aide" style={{ margin: '2px 0 0' }}>
-              {newsletters > 0
-                ? `${newsletters.toLocaleString('fr-FR')} newsletters repérées — désabonnez, supprimez.`
-                : 'Se désabonner et supprimer, en un clic.'}
-            </p>
-          </div>
-          <button className="discret" onClick={inventorier} disabled={chargement || occupe}>
-            {chargement ? 'Inventaire…' : 'Actualiser la liste'}
-          </button>
-        </div>
-        {!plan && !chargement && (
-          <p className="aide" style={{ marginTop: 12 }}>
-            Lancez « Ranger ma boîte » (ou « Actualiser la liste ») pour repérer vos newsletters.
-          </p>
-        )}
-        {plan && newsletters === 0 && (
-          <p className="aide" style={{ marginTop: 12 }}>
-            Aucune newsletter repérée pour l'instant.
-          </p>
-        )}
-        {plan && newsletters > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <Newsletters
-              plan={plan}
-              parCle={parCle}
-              accountId={accountId}
-              occupe={occupe}
-              progresser={noop}
-            />
-          </div>
-        )}
-      </div>
+      <p style={{ textAlign: 'center' }}>
+        <button className="discret" onClick={inventorier} disabled={chargement || occupe}>
+          {chargement ? 'Inventaire…' : 'Actualiser les compteurs (relire les dossiers)'}
+        </button>
+      </p>
 
     </div>
   )
