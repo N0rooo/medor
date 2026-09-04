@@ -108,11 +108,56 @@
     }
     .carte {
       background: var(--carte); border: 1px solid var(--ligne);
-      border-radius: 14px; padding: 24px 22px;
+      border-radius: 16px; padding: 24px 22px;
+      border-top: 3px solid var(--accent, var(--bleu));
+      box-shadow: 0 1px 2px rgba(29, 42, 58, 0.04);
+      transition: transform .16s ease, box-shadow .16s ease;
     }
-    .carte .picto { font-size: 26px; }
-    .carte h3 { font-family: var(--titre); font-size: 19px; margin: 10px 0 6px; }
-    .carte p { color: var(--gris); font-size: 14.5px; margin: 0; }
+    .carte:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 14px 30px rgba(29, 42, 58, 0.10);
+    }
+    .carte .picto {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 46px; height: 46px; border-radius: 13px; font-size: 23px;
+      background: color-mix(in srgb, var(--accent, var(--bleu)) 14%, white);
+    }
+    .carte h3 { font-family: var(--titre); font-size: 19px; margin: 12px 0 6px; }
+    .carte p { color: var(--gris); font-size: 14.5px; margin: 0; line-height: 1.55; }
+
+    /* ------------------------------------------- maquette de l'app (CSS pur) */
+    .demo {
+      max-width: 660px; margin: 40px auto 0;
+      background: var(--carte); border: 1px solid var(--ligne); border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(29, 42, 58, 0.16);
+      overflow: hidden; text-align: left;
+      transform: rotate(-0.6deg);
+    }
+    .demo .barre-titre {
+      display: flex; align-items: center; gap: 6px;
+      padding: 12px 14px; border-bottom: 1px solid var(--ligne);
+    }
+    .demo .pastille-fenetre { width: 11px; height: 11px; border-radius: 50%; }
+    .demo .corps { padding: 26px 28px 24px; text-align: center; }
+    .demo .gros-bouton {
+      display: inline-block; background: var(--bleu); color: #fff;
+      font-weight: 700; font-size: 15.5px; border-radius: 11px; padding: 13px 26px;
+    }
+    .demo .petits { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+    .demo .petit-bouton {
+      border: 1px solid var(--ligne); border-radius: 9px; padding: 8px 14px;
+      font-size: 12.5px; color: var(--encre); background: #fff;
+    }
+    .demo .cr { margin-top: 22px; display: flex; flex-direction: column; gap: 7px; }
+    .demo .cr-ligne {
+      position: relative; display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--ligne); border-radius: 9px; padding: 8px 12px;
+      font-size: 13px; overflow: hidden; text-align: left;
+    }
+    .demo .cr-fond { position: absolute; top: 0; left: 0; bottom: 0; opacity: .14; }
+    .demo .cr-point { width: 9px; height: 9px; border-radius: 3px; position: relative; flex: none; }
+    .demo .cr-nom { position: relative; flex: 1; }
+    .demo .cr-nb { position: relative; font-family: var(--mono); font-size: 12px; color: var(--gris); }
 
     /* -------------------------------------------------------------- étapes */
     section.etapes { padding: 52px 0 12px; }
@@ -182,6 +227,28 @@
         <a class="bouton os" href="https://github.com/N0rooo/medor/releases/latest/download/Medor.dmg">🦴 Adopter Médor pour Mac</a>
       </div>
       <p class="precision">macOS (Apple Silicon) · gratuit · open source · notarisé Apple</p>
+
+      <div class="demo" aria-hidden="true">
+        <div class="barre-titre">
+          <span class="pastille-fenetre" style="background:#f26b5e"></span>
+          <span class="pastille-fenetre" style="background:#f5bf4f"></span>
+          <span class="pastille-fenetre" style="background:#58c55c"></span>
+        </div>
+        <div class="corps">
+          <span class="gros-bouton">Analyser et ranger mes 4 boîtes</span>
+          <div class="petits">
+            <span class="petit-bouton">Supprimer les mails commerciaux (10 106)</span>
+            <span class="petit-bouton">Se désabonner des newsletters (87)</span>
+          </div>
+          <div class="cr">
+            <div class="cr-ligne"><span class="cr-fond" style="width:88%;background:#fad165"></span><span class="cr-point" style="background:#fad165"></span><span class="cr-nom"><strong>Newsletters</strong></span><span class="cr-nb">3 396</span></div>
+            <div class="cr-ligne"><span class="cr-fond" style="width:46%;background:#999999"></span><span class="cr-point" style="background:#999999"></span><span class="cr-nom"><strong>Dev</strong> · 13 libellés</span><span class="cr-nb">725</span></div>
+            <div class="cr-ligne"><span class="cr-fond" style="width:30%;background:#fb4c2f"></span><span class="cr-point" style="background:#fb4c2f"></span><span class="cr-nom"><strong>Sécurité</strong> · 7 libellés</span><span class="cr-nb">131</span></div>
+            <div class="cr-ligne"><span class="cr-fond" style="width:22%;background:#ffad47"></span><span class="cr-point" style="background:#ffad47"></span><span class="cr-nom"><strong>Factures</strong> · 4 libellés</span><span class="cr-nb">69</span></div>
+          </div>
+        </div>
+      </div>
+
       <div class="note-ouverture" style="background: var(--vert-clair); color: var(--vert);">
         <strong>Signé et notarisé par Apple.</strong> Double-clic, ça s'ouvre — aucun avertissement.
         Et Médor se met à jour tout seul, directement depuis l'app.
@@ -191,40 +258,35 @@
     <p class="punch">Ta boîte de réception déborde.<br><span class="gris">Tu n'y penses plus. Lui, si.</span></p>
 
     <section class="grille" id="fonctions">
-      <div class="carte">
+      <div class="carte" style="--accent:#27519f">
         <span class="picto">🔌</span>
         <h3>Ta boîte, en un clic</h3>
         <p>Gmail et Outlook se connectent par un simple bouton (OAuth). iCloud et n'importe quel IMAP aussi. Aucune clé à copier, rien à configurer.</p>
       </div>
-      <div class="carte">
+      <div class="carte" style="--accent:#a479e2">
         <span class="picto">🧠</span>
         <h3>Une IA qui connaît ta boîte</h3>
-        <p>Médor s'appuie sur Claude — via ton abonnement Claude Code, ou ta clé API. Les vrais mails sont classés en hiérarchies nettes ; les newsletters filent toutes dans un seul dossier, pas la peine de trier ce qu'on ne lit pas.</p>
+        <p>Claude classe tes vrais mails en hiérarchies nettes et colorées — et envoie toutes les newsletters dans un seul dossier, pas la peine de trier ce qu'on ne lit pas.</p>
       </div>
-      <div class="carte">
-        <span class="picto">🗂️</span>
-        <h3>Des dossiers propres, en couleur</h3>
-        <p>« Banque & finance / BoursoBank », « Cinéma / Pathé »… Des hiérarchies nettes, des couleurs posées automatiquement dans Gmail, et jamais de doublons.</p>
-      </div>
-      <div class="carte">
+      <div class="carte" style="--accent:#c34a3e">
         <span class="picto">✂️</span>
         <h3>La merde dégage</h3>
-        <p>« Supprimer les mails commerciaux » et « Se désabonner des newsletters » : deux boutons, une confirmation où tu décoches ce que tu veux épargner (taux de lecture à l'appui), et des milliers de mails partent à la corbeille — récupérables.</p>
+        <p>Deux boutons — supprimer le commercial, se désabonner — avec une confirmation où tu décoches ce que tu veux épargner. Des milliers de mails partent à la corbeille, récupérables.</p>
       </div>
-      <div class="carte">
+      <div class="carte" style="--accent:#2da2bb">
         <span class="picto">📋</span>
         <h3>À faire cette semaine</h3>
         <p>Médor relit tes 7 derniers jours et te dit qui attend quoi : « untel attend le devis », « répondre à machin ». Les vraies actions, triées par urgence.</p>
       </div>
-      <div class="carte">
+      <div class="carte" style="--accent:#ffad47">
         <span class="picto">⏰</span>
         <h3>Il range pendant que tu vis</h3>
-        <p>Toutes les heures ou chaque matin à 8 h, Médor trie les nouveaux mails tout seul depuis la barre de menus, et te le raconte en une notification.</p>
+        <p>Chaque matin (ou chaque heure), Médor trie les nouveaux mails lus depuis la barre de menus, sur toutes tes boîtes, et te le raconte d'un « wouf ».</p>
       </div>
-      <div class="carte">
+      <div class="carte" style="--accent:#16a766">
         <span class="picto">↩️</span>
         <h3>Zéro angoisse</h3>
-        <p>Médor ne supprime jamais rien. Chaque plan est validé par toi avant d'agir, chaque action est tracée dans un Journal annulable d'un clic — jusqu'au bouton « tout remettre en boîte de réception ».</p>
+        <p>Rien n'est jamais détruit : corbeille récupérable, Journal détaillé annulable d'un clic, et un bouton « tout remettre en boîte de réception ».</p>
       </div>
     </section>
 
