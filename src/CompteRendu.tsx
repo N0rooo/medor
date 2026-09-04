@@ -40,6 +40,10 @@ export default function CompteRendu({ lignes }: { lignes: string[] }) {
   }
   const liste = [...groupes.entries()].sort((a, b) => b[1].total - a[1].total)
   const max = Math.max(...liste.map(([, g]) => g.total), 1)
+  // Échelle en racine carrée : un gros dossier (Newsletters…) n'écrase pas
+  // visuellement tous les autres, tout reste comparable d'un coup d'œil.
+  const largeur = (n: number, base: number) =>
+    `${Math.max(4, Math.round((Math.sqrt(n) / Math.sqrt(Math.max(base, 1))) * 100))}%`
 
   return (
     <div className="cr-liste">
@@ -58,7 +62,7 @@ export default function CompteRendu({ lignes }: { lignes: string[] }) {
             >
               <div
                 className="cr-remplissage"
-                style={{ width: `${Math.max(3, (g.total / max) * 100)}%`, background: teinte }}
+                style={{ width: largeur(g.total, max), background: teinte }}
               />
               <span className="cr-chevron">{depliable ? (ouvert ? '▾' : '▸') : ''}</span>
               <span className="cr-pastille" style={{ background: teinte }} />
@@ -76,10 +80,7 @@ export default function CompteRendu({ lignes }: { lignes: string[] }) {
                     <div className="cr-ligne cr-sous" key={c.nom}>
                       <div
                         className="cr-remplissage"
-                        style={{
-                          width: `${Math.max(3, (c.n / g.total) * 100)}%`,
-                          background: teinte
-                        }}
+                        style={{ width: largeur(c.n, g.total), background: teinte }}
                       />
                       <span className="cr-nom">
                         {c.nom === racine ? '(à la racine)' : c.nom.slice(racine.length + 1)}
