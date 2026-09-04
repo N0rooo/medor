@@ -1644,8 +1644,11 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
                                     .unwrap_or(0)
                             };
                             liste.push(DossierCompte {
-                                name: crate::mail::utf7::decode(wire)
-                                    .replace(delimiter.as_str(), "/"),
+                                name: organizer::sans_prefixe_inbox(
+                                    &crate::mail::utf7::decode(wire),
+                                    delimiter,
+                                )
+                                .replace(delimiter.as_str(), "/"),
                                 total: mb.exists,
                                 unseen,
                             });
@@ -1691,7 +1694,10 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
             if let Ok(mut nettoyage) = crate::mail::open_session(&app, &account) {
                 for nom in &a_supprimer {
                     let wire = crate::mail::utf7::encode(&nom.replace('/', delimiter.as_str()));
-                    let _ = nettoyage.delete(&wire);
+                    if nettoyage.delete(&wire).is_err() {
+                        // Serveurs à namespace : le vrai nom est INBOX.<nom>.
+                        let _ = nettoyage.delete(&format!("INBOX{}{}", delimiter, wire));
+                    }
                 }
                 let _ = nettoyage.logout();
             }
@@ -1738,10 +1744,7 @@ pub async fn folder_preview(
             .clone();
         let mut session = crate::mail::open_session(&app, &account)?;
         let (_, delimiter) = organizer::dossiers_ranges(&mut session)?;
-        let wire = crate::mail::utf7::encode(&folder.replace('/', &delimiter));
-        session
-            .select(&wire)
-            .map_err(|e| format!("Dossier « {folder} » inaccessible : {e}"))?;
+        organizer::selectionner_dossier(&mut session, &folder, &delimiter)?;
         let mut uids: Vec<u32> = session
             .uid_search("ALL")
             .map_err(|e| format!("Recherche impossible : {e}"))?

@@ -255,15 +255,19 @@ pub fn delete_labels(
                 if lower == "inbox" || lower.starts_with("[gmail]") || lower.starts_with("[google mail]") {
                     return false;
                 }
-                let racine = lower
+                let effectif = sans_prefixe_inbox(&lower, &delimiter);
+                if effectif.is_empty() {
+                    return false;
+                }
+                let racine = effectif
                     .split(delimiter.as_str())
                     .next()
-                    .unwrap_or(&lower)
+                    .unwrap_or(&effectif)
                     .to_string();
-                let dernier = lower
+                let dernier = effectif
                     .rsplit(delimiter.as_str())
                     .next()
-                    .unwrap_or(&lower)
+                    .unwrap_or(&effectif)
                     .to_string();
                 !(DOSSIERS_PROTEGES.contains(&racine.as_str())
                     || DOSSIERS_PROTEGES.contains(&dernier.as_str()))
@@ -340,15 +344,19 @@ pub fn restore_to_inbox(
                 {
                     return None;
                 }
-                let racine = lower
+                let effectif = sans_prefixe_inbox(&lower, &delimiter);
+                if effectif.is_empty() {
+                    return None;
+                }
+                let racine = effectif
                     .split(delimiter.as_str())
                     .next()
-                    .unwrap_or(&lower)
+                    .unwrap_or(&effectif)
                     .to_string();
-                let dernier = lower
+                let dernier = effectif
                     .rsplit(delimiter.as_str())
                     .next()
-                    .unwrap_or(&lower)
+                    .unwrap_or(&effectif)
                     .to_string();
                 if DOSSIERS_PROTEGES.contains(&racine.as_str())
                     || DOSSIERS_PROTEGES.contains(&dernier.as_str())
@@ -427,6 +435,35 @@ pub fn restore_to_inbox(
     Ok(result)
 }
 
+/// Retire l'éventuel préfixe de namespace « INBOX<delim> » (Dovecot/Courier :
+/// tous les dossiers personnels vivent sous INBOX.).
+pub fn sans_prefixe_inbox(nom: &str, delimiter: &str) -> String {
+    let prefixe = format!("inbox{delimiter}");
+    if nom.len() > prefixe.len() && nom[..prefixe.len()].eq_ignore_ascii_case(&prefixe) {
+        nom[prefixe.len()..].to_string()
+    } else {
+        nom.to_string()
+    }
+}
+
+/// Sélectionne un dossier par son nom affiché, en réessayant avec le préfixe
+/// de namespace INBOX quand le serveur l'exige. Renvoie le nom IMAP retenu.
+pub fn selectionner_dossier(
+    session: &mut ImapSession,
+    display: &str,
+    delimiter: &str,
+) -> Result<String, String> {
+    let base = super::utf7::encode(&display.replace('/', delimiter));
+    if session.select(&base).is_ok() {
+        return Ok(base);
+    }
+    let prefixee = format!("INBOX{delimiter}{base}");
+    session
+        .select(&prefixee)
+        .map_err(|e| format!("Dossier « {display} » inaccessible : {e}"))?;
+    Ok(prefixee)
+}
+
 /// Dossiers « rangés » du compte : tous les dossiers sélectionnables, sauf la
 /// boîte de réception et les dossiers système (FR/EN).
 pub fn dossiers_ranges(session: &mut ImapSession) -> Result<(Vec<String>, String), String> {
@@ -460,15 +497,21 @@ pub fn dossiers_ranges(session: &mut ImapSession) -> Result<(Vec<String>, String
             {
                 return false;
             }
-            let racine = lower
+            // Namespace « INBOX. » : on juge le nom SANS ce préfixe, sinon
+            // tous les dossiers du serveur seraient exclus (racine = inbox).
+            let effectif = sans_prefixe_inbox(&lower, &delimiter);
+            if effectif.is_empty() {
+                return false;
+            }
+            let racine = effectif
                 .split(delimiter.as_str())
                 .next()
-                .unwrap_or(&lower)
+                .unwrap_or(&effectif)
                 .to_string();
-            let dernier = lower
+            let dernier = effectif
                 .rsplit(delimiter.as_str())
                 .next()
-                .unwrap_or(&lower)
+                .unwrap_or(&effectif)
                 .to_string();
             !(DOSSIERS_PROTEGES.contains(&racine.as_str())
                 || DOSSIERS_PROTEGES.contains(&dernier.as_str()))
@@ -488,10 +531,7 @@ pub fn trash_folder_content(
     emit: &dyn Fn(u32, u32),
 ) -> Result<(u32, bool), String> {
     let (trash, delimiter) = dossier_corbeille(session)?;
-    let wire = super::utf7::encode(&folder_display.replace('/', &delimiter));
-    session
-        .select(&wire)
-        .map_err(|e| format!("Dossier « {folder_display} » inaccessible : {e}"))?;
+    let wire = selectionner_dossier(session, folder_display, &delimiter)?;
     let mut uids: Vec<u32> = session
         .uid_search("ALL")
         .map_err(|e| format!("Recherche impossible : {e}"))?
@@ -570,13 +610,13 @@ pub fn trash_senders_by_address(
     // (Chercher toutes les adresses dans tous les dossiers était quadratique :
     // des milliers de commandes IMAP et des minutes de silence.)
     let toutes: Vec<String> = cibles.iter().map(|(a, _)| a.clone()).collect();
-    let mut par_dossier: Vec<(String, Vec<String>)> = vec![("INBOX".to_string(), toutes)];
+    // (nom affiché — "" pour INBOX — et adresses à y chercher)
+    let mut par_dossier: Vec<(String, Vec<String>)> = vec![(String::new(), toutes)];
     let mut index: HashMap<String, usize> = HashMap::new();
     for (adresse, label) in cibles {
         if let Some(label) = label {
-            let wire = super::utf7::encode(&label.replace('/', &delimiter));
-            let i = *index.entry(wire.clone()).or_insert_with(|| {
-                par_dossier.push((wire, Vec::new()));
+            let i = *index.entry(label.clone()).or_insert_with(|| {
+                par_dossier.push((label.clone(), Vec::new()));
                 par_dossier.len() - 1
             });
             par_dossier[i].1.push(adresse.clone());
@@ -592,9 +632,17 @@ pub fn trash_senders_by_address(
             return Ok(0);
         }
         emit(i as u32, total_dossiers, true);
-        if session.select(dossier).is_err() {
-            continue;
-        }
+        let resolu = if dossier.is_empty() {
+            if session.select("INBOX").is_err() {
+                continue;
+            }
+            "INBOX".to_string()
+        } else {
+            match selectionner_dossier(session, dossier, &delimiter) {
+                Ok(w) => w,
+                Err(_) => continue,
+            }
+        };
         let mut uids: Vec<u32> = Vec::new();
         for adresse in adresses {
             if let Ok(set) = session.uid_search(format!("FROM \"{}\"", adresse.replace('"', ""))) {
@@ -605,7 +653,7 @@ pub fn trash_senders_by_address(
         uids.dedup();
         total += uids.len() as u32;
         if !uids.is_empty() {
-            travaux.push((dossier.clone(), uids));
+            travaux.push((resolu, uids));
         }
     }
     emit(0, total, false);
