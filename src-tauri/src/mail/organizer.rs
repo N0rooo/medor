@@ -5,7 +5,7 @@ use crate::types::{ApplyProgress, ApplyResult, ApplySelection, DeleteLabelsResul
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const MOVE_CHUNK: usize = 200;
+const MOVE_CHUNK: usize = 400;
 
 /// Applique le plan de rangement : crée les libellés (dossiers IMAP), archive
 /// les mails lus dedans, et déplace les expéditeurs indésirables vers le spam.

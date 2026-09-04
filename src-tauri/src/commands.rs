@@ -508,16 +508,71 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
         })
         .unwrap_or_default();
 
-    let emit_progress = |p: ScanProgress| emit_scan(&app, p);
     // Pas de fenêtre temporelle : c'est la limite de volume qui borne l'analyse.
-    let (messages, inbox_total) = scanner::scan_inbox(
-        &mut session,
-        0,
-        &scope,
-        cfg.settings.scan_limit,
-        &busy.cancel,
-        &emit_progress,
-    )?;
+    let (uids_inbox, inbox_total) =
+        scanner::search_inbox(&mut session, &scope, cfg.settings.scan_limit)?;
+    emit_scan(
+        &app,
+        ScanProgress {
+            phase: "liste".into(),
+            done: 0,
+            total: inbox_total,
+            note: None,
+        },
+    );
+    let total_lecture = uids_inbox.len() as u32;
+    let lu = std::sync::atomic::AtomicU32::new(0);
+    let progresse = |n: u32| {
+        let d = lu.fetch_add(n, Ordering::Relaxed) + n;
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "lecture".into(),
+                done: d.min(total_lecture),
+                total: total_lecture,
+                note: None,
+            },
+        );
+    };
+    // Lecture des en-têtes : 4 connexions en parallèle dès que le volume le
+    // justifie — la latence réseau est le facteur limitant, pas le débit.
+    let messages: Vec<scanner::ScannedMessage> = if uids_inbox.len() >= 2000 {
+        let tranches: Vec<&[u32]> = uids_inbox.chunks(uids_inbox.len().div_ceil(4)).collect();
+        let resultats: Vec<Result<Vec<scanner::ScannedMessage>, String>> =
+            std::thread::scope(|sc| {
+                let handles: Vec<_> = tranches
+                    .iter()
+                    .map(|tranche| {
+                        let app2 = &app;
+                        let account2 = &account;
+                        let cancel = &busy.cancel;
+                        let progresse = &progresse;
+                        sc.spawn(move || {
+                            let mut s2 = crate::mail::open_session(app2, account2)?;
+                            s2.select("INBOX").map_err(|e| e.to_string())?;
+                            let r = scanner::fetch_headers(&mut s2, tranche, cancel, progresse);
+                            let _ = s2.logout();
+                            r
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join()
+                            .unwrap_or_else(|_| Err("erreur interne d'une connexion".into()))
+                    })
+                    .collect()
+            });
+        let mut tous = Vec::new();
+        for r in resultats {
+            tous.extend(r?);
+        }
+        tous.sort_by_key(|m| m.uid);
+        tous
+    } else {
+        scanner::fetch_headers(&mut session, &uids_inbox, &busy.cancel, &progresse)?
+    };
     let _ = session.logout();
 
     emit_scan(
@@ -924,23 +979,19 @@ pub async fn delete_labels(
 /// Boucle de fond : vérifie chaque minute si un rangement automatique est dû,
 /// puis analyse et range chaque compte. L'app doit rester ouverte.
 pub fn auto_sort_loop(app: AppHandle) {
-    // Délai de grâce : au lancement, c'est la popup de l'interface qui décide
-    // (« Lancer maintenant » / « Plus tard ») — la boucle ne rattrape rien
-    // dans le dos de l'utilisateur pendant les 10 premières minutes.
-    let demarrage = std::time::Instant::now();
+    // Une passe en retard (heure quotidienne dépassée pendant que l'app était
+    // fermée) part toute seule ~20 s après le lancement, puis la boucle
+    // vérifie chaque minute.
+    std::thread::sleep(Duration::from_secs(20));
     loop {
-        std::thread::sleep(Duration::from_secs(60));
-        if demarrage.elapsed() < Duration::from_secs(600) {
-            continue;
-        }
         let cfg = store::load_config(&app);
-        if !cfg.settings.auto_enabled || cfg.accounts.is_empty() {
-            continue;
+        if cfg.settings.auto_enabled
+            && !cfg.accounts.is_empty()
+            && auto_due(&cfg.settings, cfg.last_auto_run)
+        {
+            auto_pass(&app);
         }
-        if !auto_due(&cfg.settings, cfg.last_auto_run) {
-            continue;
-        }
-        auto_pass(&app);
+        std::thread::sleep(Duration::from_secs(60));
     }
 }
 
@@ -1024,8 +1075,10 @@ fn auto_due(settings: &Settings, last_run: i64) -> bool {
         "1h" => now.timestamp() - last_run >= 3590,
         "6h" => now.timestamp() - last_run >= 6 * 3600 - 10,
         _ => {
-            // Quotidien : à l'heure choisie, une seule fois par jour.
-            if now.hour() != settings.auto_hour as u32 {
+            // Quotidien : dû dès que l'heure choisie est passée et que la
+            // passe du jour n'a pas encore eu lieu — même si l'app était
+            // fermée à l'heure dite (rattrapage au lancement).
+            if now.hour() < settings.auto_hour as u32 {
                 return false;
             }
             match chrono::DateTime::from_timestamp(last_run, 0) {
@@ -1389,41 +1442,77 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
         );
         let mut session = crate::mail::open_session(&app, &account)?;
         let (wires, delimiter) = organizer::dossiers_ranges(&mut session)?;
+        let _ = session.logout();
         let total_dossiers = wires.len() as u32;
-        let mut dossiers: Vec<DossierCompte> = Vec::new();
-        for (index, wire) in wires.into_iter().enumerate() {
-            if busy.annule() {
-                return Err("Opération annulée.".into());
-            }
+        let fait = std::sync::atomic::AtomicU32::new(0);
+        let progresse = || {
+            let d = fait.fetch_add(1, Ordering::Relaxed) + 1;
             emit_scan(
                 &app,
                 ScanProgress {
                     phase: "lecture".into(),
-                    done: index as u32,
+                    done: d.min(total_dossiers),
                     total: total_dossiers,
                     note: Some("Inventaire des libellés…".into()),
                 },
             );
-            // EXAMINE (SELECT en lecture seule) plutôt que STATUS : le parsing
-            // de STATUS désynchronise la session sur certains serveurs.
-            let Ok(mb) = session.examine(&wire) else {
-                continue;
-            };
-            let unseen = if mb.exists == 0 {
-                0
-            } else {
-                session
-                    .uid_search("UNSEEN")
-                    .map(|set| set.len() as u32)
-                    .unwrap_or(0)
-            };
-            dossiers.push(DossierCompte {
-                name: crate::mail::utf7::decode(&wire).replace(delimiter.as_str(), "/"),
-                total: mb.exists,
-                unseen,
-            });
+        };
+        // 4 connexions en parallèle : l'inventaire est borné par la latence,
+        // pas par le serveur. EXAMINE (lecture seule) plutôt que STATUS, dont
+        // le parsing désynchronise la session sur certains serveurs.
+        let taille = wires.len().div_ceil(4).max(1);
+        let tranches: Vec<&[String]> = wires.chunks(taille).collect();
+        let resultats: Vec<Result<Vec<DossierCompte>, String>> = std::thread::scope(|sc| {
+            let handles: Vec<_> = tranches
+                .iter()
+                .map(|tranche| {
+                    let app2 = &app;
+                    let account2 = &account;
+                    let cancel = &busy.cancel;
+                    let progresse = &progresse;
+                    let delimiter = &delimiter;
+                    sc.spawn(move || -> Result<Vec<DossierCompte>, String> {
+                        let mut s2 = crate::mail::open_session(app2, account2)?;
+                        let mut liste: Vec<DossierCompte> = Vec::new();
+                        for wire in tranche.iter() {
+                            if cancel.load(Ordering::Relaxed) {
+                                return Err("Opération annulée.".into());
+                            }
+                            progresse();
+                            let Ok(mb) = s2.examine(wire) else {
+                                continue;
+                            };
+                            let unseen = if mb.exists == 0 {
+                                0
+                            } else {
+                                s2.uid_search("UNSEEN")
+                                    .map(|set| set.len() as u32)
+                                    .unwrap_or(0)
+                            };
+                            liste.push(DossierCompte {
+                                name: crate::mail::utf7::decode(wire)
+                                    .replace(delimiter.as_str(), "/"),
+                                total: mb.exists,
+                                unseen,
+                            });
+                        }
+                        let _ = s2.logout();
+                        Ok(liste)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| Err("erreur interne d'une connexion".into()))
+                })
+                .collect()
+        });
+        let mut dossiers: Vec<DossierCompte> = Vec::new();
+        for r in resultats {
+            dossiers.extend(r?);
         }
-        let _ = session.logout();
         dossiers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         // Persiste : la vue « Ma boîte » se réaffiche instantanément au
         // prochain lancement, puis se rafraîchit en arrière-plan.

@@ -3,7 +3,7 @@ use crate::types::ScanProgress;
 use std::sync::atomic::{AtomicBool, Ordering};
 use mailparse::MailHeaderMap;
 
-const FETCH_CHUNK: usize = 300;
+const FETCH_CHUNK: usize = 500;
 
 #[derive(Clone, Debug)]
 pub struct ScannedMessage {
@@ -19,47 +19,25 @@ pub struct ScannedMessage {
     pub precedence_bulk: bool,
 }
 
-/// `scope` : "tous" (tout), "lus" (SEEN) ou "nonlus" (UNSEEN).
-/// `max_messages` : plafond par analyse (0 = sans limite), les plus récents d'abord.
-pub fn scan_inbox(
+/// Sélectionne INBOX et cherche les UIDs correspondant à la portée.
+/// `max_messages` : plafond (0 = sans limite), les plus récents d'abord.
+pub fn search_inbox(
     session: &mut ImapSession,
-    horizon_months: u32,
     scope: &str,
     max_messages: u32,
-    cancel: &AtomicBool,
-    emit: &dyn Fn(ScanProgress),
-) -> Result<(Vec<ScannedMessage>, u32), String> {
+) -> Result<(Vec<u32>, u32), String> {
     let mailbox = session
         .select("INBOX")
         .map_err(|e| format!("Impossible d'ouvrir la boîte de réception : {e}"))?;
     let inbox_total = mailbox.exists;
 
-    emit(ScanProgress {
-        phase: "liste".into(),
-        done: 0,
-        total: inbox_total,
-        note: None,
-    });
-
-    let mut criteres: Vec<String> = Vec::new();
-    match scope {
-        "lus" => criteres.push("SEEN".into()),
-        "nonlus" => criteres.push("UNSEEN".into()),
-        _ => {}
-    }
-    if horizon_months > 0 {
-        let since = chrono::Utc::now() - chrono::Duration::days(horizon_months as i64 * 30);
-        // Le format de date IMAP exige des mois en anglais abrégé (%b de chrono).
-        criteres.push(format!("SINCE {}", since.format("%d-%b-%Y")));
-    }
-    let query = if criteres.is_empty() {
-        "ALL".to_string()
-    } else {
-        criteres.join(" ")
+    let query = match scope {
+        "lus" => "SEEN",
+        "nonlus" => "UNSEEN",
+        _ => "ALL",
     };
-
     let mut uids: Vec<u32> = session
-        .uid_search(&query)
+        .uid_search(query)
         .map_err(|e| format!("Recherche impossible : {e}"))?
         .into_iter()
         .collect();
@@ -72,10 +50,19 @@ pub fn scan_inbox(
     if uids.len() > plafond {
         uids = uids.split_off(uids.len() - plafond);
     }
+    Ok((uids, inbox_total))
+}
 
-    let total = uids.len() as u32;
+/// Lit les en-têtes des UIDs donnés (INBOX déjà sélectionnée) et signale la
+/// progression via `progresse(nombre lu dans ce paquet)`. Utilisable en
+/// parallèle sur plusieurs connexions.
+pub fn fetch_headers(
+    session: &mut ImapSession,
+    uids: &[u32],
+    cancel: &AtomicBool,
+    progresse: &(dyn Fn(u32) + Sync),
+) -> Result<Vec<ScannedMessage>, String> {
     let mut messages: Vec<ScannedMessage> = Vec::with_capacity(uids.len());
-
     for chunk in uids.chunks(FETCH_CHUNK) {
         if cancel.load(Ordering::Relaxed) {
             return Err("Opération annulée.".into());
@@ -88,22 +75,15 @@ pub fn scan_inbox(
         let fetches = session
             .uid_fetch(&set, "(UID FLAGS RFC822.HEADER)")
             .map_err(|e| format!("Lecture des messages impossible : {e}"))?;
-
+        let avant = messages.len();
         for fetch in fetches.iter() {
             if let Some(m) = message_depuis_fetch(fetch) {
                 messages.push(m);
             }
         }
-
-        emit(ScanProgress {
-            phase: "lecture".into(),
-            done: messages.len() as u32,
-            total,
-            note: None,
-        });
+        progresse((messages.len() - avant).max(chunk.len().min(1)) as u32);
     }
-
-    Ok((messages, inbox_total))
+    Ok(messages)
 }
 
 /// Transforme un FETCH (UID FLAGS RFC822.HEADER) en message analysé.

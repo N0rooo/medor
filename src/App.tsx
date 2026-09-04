@@ -23,8 +23,6 @@ export default function App() {
   const [scanGlobal, setScanGlobal] = useState<ScanProgress | null>(null)
   const [appliqueGlobal, setAppliqueGlobal] = useState<ApplyProgress | null>(null)
   const [boucleGlobal, setBoucleGlobal] = useState<BoucleProgress | null>(null)
-  // Rangement automatique en retard au lancement : on demande, on n'impose pas.
-  const [autoPopup, setAutoPopup] = useState(false)
   // Mise à jour de l'app disponible (vérifiée au lancement, choix à l'utilisateur).
   const [maj, setMaj] = useState<Update | null>(null)
   const [majEtat, setMajEtat] = useState<'choix' | 'telechargement' | 'redemarrage'>('choix')
@@ -92,9 +90,6 @@ export default function App() {
     rafraichir().then((state) => {
       setVue(state.accounts.length === 0 ? 'accueil' : 'tableau')
       setCompteId(state.accounts[0]?.id ?? null)
-      if (state.accounts.length > 0) {
-        api.autoPending().then(setAutoPopup).catch(() => {})
-      }
     })
   }, [rafraichir])
 
@@ -207,40 +202,6 @@ export default function App() {
                 </button>
               </div>
             )}
-          </div>
-        )}
-        {!maj && autoPopup && opsActives === 0 && !scanGlobal && !appliqueGlobal && (
-          <div className="popup-auto">
-            <div className="popup-auto-tete">
-              <Mascotte taille={34} />
-              <div>
-                <strong>Rangement automatique en attente</strong>
-                <p>
-                  Médor devait ranger pendant que l'app était fermée. Lancer la
-                  passe maintenant ?
-                </p>
-              </div>
-            </div>
-            <div className="popup-auto-actions">
-              <button
-                className="secondaire"
-                onClick={() => {
-                  setAutoPopup(false)
-                  api.autoDefer()
-                }}
-              >
-                Plus tard
-              </button>
-              <button
-                className="principal"
-                onClick={() => {
-                  setAutoPopup(false)
-                  api.autoRunNow()
-                }}
-              >
-                🦴 Lancer maintenant
-              </button>
-            </div>
           </div>
         )}
         {(opsActives > 0 || scanGlobal || appliqueGlobal || boucleGlobal) && (
