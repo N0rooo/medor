@@ -308,11 +308,19 @@ export default function Reglages({ boot, occupe, onChanged }: Props) {
           <label className="champ">
             <span>Portée</span>
             <select value={autoPortee} onChange={(e) => setAutoPortee(e.target.value)}>
-              <option value="lus">Mails déjà lus</option>
+              <option value="lus">Mails déjà lus (recommandé)</option>
               <option value="nonlus">Mails non lus</option>
               <option value="tous">Toute la boîte</option>
             </select>
           </label>
+          {autoPortee !== 'lus' && (
+            <div className="erreur" style={{ marginTop: 10 }}>
+              ⚠️ Avec cette portée, les mails <strong>non lus</strong> sont rangés dans leurs
+              libellés avant que vous les voyiez passer — risque de rater un mail important.
+              « Mails déjà lus » est plus prudent : les non-lus restent dans la boîte de
+              réception jusqu'à ce que vous les ayez lus, et ne sont rangés qu'ensuite.
+            </div>
+          )}
           <label
             style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 18 }}
           >
