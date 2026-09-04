@@ -157,11 +157,18 @@ export default function Simple({
             <summary className="aide" style={{ cursor: 'pointer' }}>
               Ce que Médor a fait ({detailPassage.length} libellés)
             </summary>
-            <ul className="aide" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-              {detailPassage.slice(0, 15).map((ligne, i) => (
+            <ul
+              className="aide"
+              style={{
+                margin: '8px 0 0',
+                paddingLeft: 18,
+                maxHeight: 300,
+                overflowY: 'auto'
+              }}
+            >
+              {detailPassage.map((ligne, i) => (
                 <li key={i}>{ligne}</li>
               ))}
-              {detailPassage.length > 15 && <li>… et {detailPassage.length - 15} autres</li>}
             </ul>
           </details>
         )}

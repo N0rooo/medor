@@ -47,8 +47,8 @@ export const api = {
   rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),
   mailboxTree: (accountId: string) => invoke<DossierCompte[]>('mailbox_tree', { accountId }),
   getLastTree: (accountId: string) => invoke<ArbreCompte | null>('get_last_tree', { accountId }),
-  folderPreview: (accountId: string, folder: string) =>
-    invoke<ApercuMail[]>('folder_preview', { accountId, folder }),
+  folderPreview: (accountId: string, folder: string, offset = 0) =>
+    invoke<ApercuMail[]>('folder_preview', { accountId, folder, offset }),
   trashFolder: (accountId: string, folder: string) =>
     invoke<VidageResult>('trash_folder', { accountId, folder }),
   trashFolders: (accountId: string, folders: string[]) =>

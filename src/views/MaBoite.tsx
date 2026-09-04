@@ -161,6 +161,18 @@ export default function MaBoite({
     }
   }
 
+  /** Page suivante de l'aperçu (50 mails de plus, vers le passé). */
+  const voirPlus = async (nom: string) => {
+    const actuels = apercus[nom]
+    if (!Array.isArray(actuels)) return
+    try {
+      const plus = await api.folderPreview(accountId, nom, actuels.length)
+      setApercus((a) => ({ ...a, [nom]: [...actuels, ...plus] }))
+    } catch (e) {
+      setStatuts((st) => ({ ...st, [nom]: String(e) }))
+    }
+  }
+
   const cochees = useMemo(
     () => (arbre ?? []).filter((d) => selection[d.name]),
     [arbre, selection]
@@ -286,6 +298,7 @@ export default function MaBoite({
           </p>
         )}
         {Array.isArray(apercu) && (
+          <>
           <table className="liste" style={{ marginTop: 8 }}>
             <tbody>
               {apercu.map((m, i) => (
@@ -318,6 +331,13 @@ export default function MaBoite({
               ))}
             </tbody>
           </table>
+          {apercu.length < d.total && (
+            <button className="discret" style={{ marginTop: 6 }} onClick={() => voirPlus(d.name)}>
+              Afficher plus ({apercu.length.toLocaleString('fr-FR')}/
+              {d.total.toLocaleString('fr-FR')})
+            </button>
+          )}
+          </>
         )}
       </div>
     )

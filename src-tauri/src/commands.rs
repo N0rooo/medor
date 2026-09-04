@@ -1653,6 +1653,7 @@ pub async fn folder_preview(
     app: AppHandle,
     account_id: String,
     folder: String,
+    offset: Option<u32>,
 ) -> Result<Vec<ApercuMail>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let cfg = store::load_config(&app);
@@ -1674,9 +1675,11 @@ pub async fn folder_preview(
             .into_iter()
             .collect();
         uids.sort_unstable();
-        if uids.len() > 30 {
-            uids = uids.split_off(uids.len() - 30);
-        }
+        // Pagination du plus récent au plus ancien : 50 mails par page.
+        let saut = offset.unwrap_or(0) as usize;
+        let fin = uids.len().saturating_sub(saut);
+        let debut = fin.saturating_sub(50);
+        uids = uids[debut..fin].to_vec();
         let mut apercus: Vec<ApercuMail> = Vec::new();
         if !uids.is_empty() {
             let set = uids
