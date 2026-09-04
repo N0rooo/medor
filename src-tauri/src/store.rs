@@ -83,6 +83,21 @@ pub fn load_tree(app: &AppHandle, account_id: &str) -> Option<crate::types::Arbr
     serde_json::from_str(&raw).ok()
 }
 
+fn actions_path(app: &AppHandle, account_id: &str) -> PathBuf {
+    data_dir(app).join(format!("actions-{account_id}.json"))
+}
+
+pub fn save_actions(app: &AppHandle, account_id: &str, valeur: &crate::types::ActionsSemaine) {
+    if let Ok(json) = serde_json::to_string(valeur) {
+        let _ = fs::write(actions_path(app, account_id), json);
+    }
+}
+
+pub fn load_actions(app: &AppHandle, account_id: &str) -> Option<crate::types::ActionsSemaine> {
+    let raw = fs::read_to_string(actions_path(app, account_id)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 pub fn save_config(app: &AppHandle, cfg: &Config) {
     let path = config_path(app);
     if let Ok(json) = serde_json::to_string_pretty(cfg) {

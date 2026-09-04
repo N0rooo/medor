@@ -182,6 +182,24 @@ pub struct DossierCompte {
     pub unseen: u32,
 }
 
+/// Une action qui attend l'utilisateur, extraite des mails de la semaine.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ActionItem {
+    pub titre: String,
+    pub detail: String,
+    pub expediteur: String,
+    /// haute | normale
+    pub urgence: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ActionsSemaine {
+    pub actions: Vec<ActionItem>,
+    pub generated_at: i64,
+}
+
 /// Résultat du vidage d'un libellé (vue « Ma boîte »).
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

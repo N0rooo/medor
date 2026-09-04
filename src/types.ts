@@ -98,6 +98,18 @@ export interface DossierCompte {
   unseen: number
 }
 
+export interface ActionItem {
+  titre: string
+  detail: string
+  expediteur: string
+  urgence: string
+}
+
+export interface ActionsSemaine {
+  actions: ActionItem[]
+  generatedAt: number
+}
+
 export interface VidageResult {
   trashed: number
   folderDeleted: boolean

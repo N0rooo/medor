@@ -327,6 +327,33 @@ fn harmonize(
     Ok(mapping)
 }
 
+/// Pose une question libre à l'IA (clé API ou CLI Claude), réponse brute.
+pub fn demander(
+    auth: &AiAuth,
+    client: &reqwest::blocking::Client,
+    model: &str,
+    system: &str,
+    user: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<String, String> {
+    match auth {
+        AiAuth::ApiKey(key) => request_via_api(client, key, model, system, user),
+        AiAuth::ClaudeCli(bin) => {
+            run_claude_cli(bin, model, &format!("{system}\n\n{user}"), cancel)
+        }
+    }
+}
+
+/// Premier tableau JSON trouvé dans un texte de réponse IA.
+pub fn extract_json_array(text: &str) -> Option<Value> {
+    let debut = text.find('[')?;
+    let fin = text.rfind(']')?;
+    if fin <= debut {
+        return None;
+    }
+    serde_json::from_str(&text[debut..=fin]).ok()
+}
+
 /// Appel direct de l'API Anthropic (chemin « clé API »).
 fn request_via_api(
     client: &reqwest::blocking::Client,

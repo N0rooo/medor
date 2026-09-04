@@ -1983,6 +1983,217 @@ pub async fn trash_folders(
     .map_err(|e| e.to_string())?
 }
 
+// --------------------------------------------------------- À faire cette semaine
+
+/// Nettoie le corps brut d'un mail (MIME approximatif) en court extrait.
+fn extrait_texte(brut: &[u8]) -> String {
+    let texte = String::from_utf8_lossy(brut);
+    let mut propre = String::new();
+    for ligne in texte.lines() {
+        let l = ligne.trim();
+        if l.is_empty()
+            || l.starts_with('>')
+            || l.starts_with("--")
+            || l.starts_with("Content-")
+            || l.starts_with("charset")
+            || l.contains("<html")
+            || l.contains("<head")
+        {
+            continue;
+        }
+        propre.push_str(l);
+        propre.push(' ');
+        if propre.len() > 900 {
+            break;
+        }
+    }
+    propre.chars().take(500).collect()
+}
+
+/// « À faire cette semaine » : l'IA lit les mails des 7 derniers jours
+/// (expéditeur, objet, court extrait) et en tire les actions qui attendent
+/// l'utilisateur. C'est la SEULE analyse qui envoie des extraits de contenu
+/// à l'IA — à la demande, jamais en tâche de fond.
+#[tauri::command]
+pub async fn action_items(app: AppHandle, account_id: String) -> Result<ActionsSemaine, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let busy = prendre_verrou(&app, &account_id, "analyse de la semaine")?;
+        let cfg = store::load_config(&app);
+        let account = cfg
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or("Compte introuvable.")?
+            .clone();
+        let auth = if let Some(key) = store::get_anthropic_key(&app) {
+            Some(AiAuth::ApiKey(key))
+        } else {
+            ai::find_claude_cli().map(AiAuth::ClaudeCli)
+        }
+        .ok_or(
+            "L'IA est nécessaire pour cette analyse : clé API ou Claude Code (voir Réglages).",
+        )?;
+
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "connexion".into(),
+                done: 0,
+                total: 0,
+                note: Some("Analyse de la semaine…".into()),
+            },
+        );
+        let mut session = crate::mail::open_session(&app, &account)?;
+        session
+            .select("INBOX")
+            .map_err(|e| format!("Boîte de réception inaccessible : {e}"))?;
+        let depuis = (chrono::Utc::now() - chrono::Duration::days(7)).format("%d-%b-%Y");
+        let mut uids: Vec<u32> = session
+            .uid_search(format!("SINCE {depuis}"))
+            .map_err(|e| format!("Recherche impossible : {e}"))?
+            .into_iter()
+            .collect();
+        uids.sort_unstable();
+        if uids.len() > 150 {
+            uids = uids.split_off(uids.len() - 150);
+        }
+
+        let total_lecture = uids.len() as u32;
+        let lu = std::sync::atomic::AtomicU32::new(0);
+        let progresse = |n: u32| {
+            let d = lu.fetch_add(n, Ordering::Relaxed) + n;
+            emit_scan(
+                &app,
+                ScanProgress {
+                    phase: "lecture".into(),
+                    done: d.min(total_lecture),
+                    total: total_lecture,
+                    note: Some("Lecture de la semaine…".into()),
+                },
+            );
+        };
+        let messages = scanner::fetch_headers(&mut session, &uids, &busy.cancel, &progresse)?;
+
+        // On écarte le bruit : newsletters, listes, robots no-reply.
+        let interessants: Vec<&crate::mail::scanner::ScannedMessage> = messages
+            .iter()
+            .filter(|m| {
+                m.list_unsubscribe.is_none()
+                    && !m.has_list_id
+                    && !m.precedence_bulk
+                    && !m.from_addr.starts_with("noreply")
+                    && !m.from_addr.starts_with("no-reply")
+                    && !m.from_addr.starts_with("donotreply")
+                    && !m.from_addr.starts_with("notification")
+            })
+            .collect();
+        let interessants: Vec<_> = interessants
+            .into_iter()
+            .rev()
+            .take(60)
+            .collect();
+
+        // Courts extraits du corps, pour comprendre ce qui est demandé.
+        let mut extraits: HashMap<u32, String> = HashMap::new();
+        for chunk in interessants
+            .iter()
+            .map(|m| m.uid)
+            .collect::<Vec<u32>>()
+            .chunks(20)
+        {
+            if busy.annule() {
+                return Err("Opération annulée.".into());
+            }
+            let set = chunk
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            if let Ok(fetches) = session.uid_fetch(&set, "(UID BODY.PEEK[TEXT])") {
+                for f in fetches.iter() {
+                    if let (Some(uid), Some(texte)) = (f.uid, f.text()) {
+                        extraits.insert(uid, extrait_texte(texte));
+                    }
+                }
+            }
+        }
+        let _ = session.logout();
+
+        let corpus: Vec<serde_json::Value> = interessants
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "de": if m.from_name.is_empty() { m.from_addr.clone() } else { format!("{} <{}>", m.from_name, m.from_addr) },
+                    "objet": m.subject,
+                    "lu": m.seen,
+                    "extrait": extraits.get(&m.uid).cloned().unwrap_or_default(),
+                })
+            })
+            .collect();
+
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "ia".into(),
+                done: 0,
+                total: 1,
+                note: Some("Médor réfléchit à votre semaine…".into()),
+            },
+        );
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(600))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let system = "Tu es l'assistant courrier de l'utilisateur. À partir de ses mails reçus \
+            cette semaine (expéditeur, objet, court extrait), liste les ACTIONS qui l'attendent : \
+            réponses dues, demandes explicites (devis, document, confirmation, rendez-vous), \
+            relances à faire, échéances. Ignore publicités, newsletters et notifications \
+            automatiques. Réponds UNIQUEMENT avec un tableau JSON : \
+            [{\"titre\":\"…\",\"detail\":\"…\",\"expediteur\":\"…\",\"urgence\":\"haute|normale\"}] \
+            — au plus 10 entrées, en français, les plus urgentes d'abord. Si rien n'attend \
+            l'utilisateur : [].";
+        let texte = ai::demander(
+            &auth,
+            &client,
+            &cfg.settings.model,
+            system,
+            &serde_json::to_string(&corpus).unwrap_or_default(),
+            &busy.cancel,
+        )?;
+        emit_scan(
+            &app,
+            ScanProgress {
+                phase: "ia".into(),
+                done: 1,
+                total: 1,
+                note: Some("Médor réfléchit à votre semaine…".into()),
+            },
+        );
+        let valeur = ai::extract_json_array(&texte)
+            .ok_or("Réponse de l'IA sans tableau JSON exploitable.")?;
+        let mut actions: Vec<ActionItem> =
+            serde_json::from_value(valeur).map_err(|e| format!("Réponse IA illisible : {e}"))?;
+        actions.truncate(10);
+        let resultat = ActionsSemaine {
+            actions,
+            generated_at: chrono::Utc::now().timestamp(),
+        };
+        store::save_actions(&app, &account_id, &resultat);
+        Ok(resultat)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Dernières actions connues (persistées).
+#[tauri::command]
+pub async fn get_actions(
+    app: AppHandle,
+    account_id: String,
+) -> Result<Option<ActionsSemaine>, String> {
+    Ok(store::load_actions(&app, &account_id))
+}
+
 // ------------------------------------------------------------- Ré-inventaire
 
 /// Reconstruit expéditeurs, newsletters et indésirables en LISANT les dossiers

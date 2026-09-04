@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
   AccountConfig,
+  ActionsSemaine,
   AddAccountInput,
   ApercuMail,
   AppBootstrap,
@@ -45,6 +46,9 @@ export const api = {
   autoNext: () => invoke<number | null>('auto_next'),
 
   getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
+  actionItems: (accountId: string) => invoke<ActionsSemaine>('action_items', { accountId }),
+  getActions: (accountId: string) =>
+    invoke<ActionsSemaine | null>('get_actions', { accountId }),
   rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),
   mailboxTree: (accountId: string) => invoke<DossierCompte[]>('mailbox_tree', { accountId }),
   getLastTree: (accountId: string) => invoke<ArbreCompte | null>('get_last_tree', { accountId }),

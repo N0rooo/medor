@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import type { AppBootstrap, JournalEntry, Plan, SenderGroup } from '../types'
+import type { ActionsSemaine, AppBootstrap, JournalEntry, Plan, SenderGroup } from '../types'
 import Mascotte from '../Mascotte'
 import CompteRendu from '../CompteRendu'
 
@@ -27,6 +27,9 @@ export default function Simple({
   const [plan, setPlan] = useState<Plan | null>(null)
   const [dernier, setDernier] = useState<string | null>(null)
   const [prochaine, setProchaine] = useState<string | null>(null)
+  const [actions, setActions] = useState<ActionsSemaine | null>(null)
+  const [actionsEnCours, setActionsEnCours] = useState(false)
+  const [actionsErreur, setActionsErreur] = useState<string | null>(null)
   const [detailPassage, setDetailPassage] = useState<string[]>([])
   const [montrerDetail, setMontrerDetail] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -90,7 +93,13 @@ export default function Simple({
     setPlan(null)
     setDernier(null)
     setMessage(null)
+    setActions(null)
+    setActionsErreur(null)
     recharger()
+    api
+      .getActions(accountId)
+      .then((a) => setActions(a))
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId])
 
@@ -188,6 +197,19 @@ export default function Simple({
     }
   }
 
+  const analyserSemaine = async () => {
+    setActionsEnCours(true)
+    setActionsErreur(null)
+    try {
+      setActions(await api.actionItems(accountId))
+    } catch (e) {
+      const m = String(e)
+      if (!m.includes('annulée')) setActionsErreur(m)
+    } finally {
+      setActionsEnCours(false)
+    }
+  }
+
   const inventorier = async () => {
     setChargement(true)
     setErreur(null)
@@ -271,6 +293,83 @@ export default function Simple({
             </summary>
             <CompteRendu lignes={detailPassage} />
           </details>
+        )}
+      </div>
+
+      <div className="carte ombre">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <h2 style={{ margin: 0 }}>À faire cette semaine</h2>
+            <p className="aide" style={{ margin: '2px 0 0' }}>
+              Médor relit vos 7 derniers jours et repère qui attend quoi de vous.
+              {actions && actions.generatedAt > 0 && (
+                <>
+                  {' '}
+                  Analyse du{' '}
+                  {new Date(actions.generatedAt * 1000).toLocaleString('fr-FR', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                  .
+                </>
+              )}
+            </p>
+          </div>
+          <button
+            className="secondaire"
+            onClick={analyserSemaine}
+            disabled={actionsEnCours || occupe}
+          >
+            {actionsEnCours ? 'Médor relit la semaine…' : 'Analyser ma semaine'}
+          </button>
+        </div>
+        {actionsErreur && (
+          <div className="erreur" style={{ marginTop: 12 }}>
+            {actionsErreur}
+          </div>
+        )}
+        {actions && actions.actions.length === 0 && (
+          <p className="aide" style={{ marginTop: 12 }}>
+            Rien ne semble attendre de réponse — belle semaine.
+          </p>
+        )}
+        {actions && actions.actions.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {actions.actions.map((a, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'baseline',
+                  padding: '10px 14px',
+                  border: '1px solid var(--ligne)',
+                  borderRadius: 10
+                }}
+              >
+                <span
+                  className="cr-pastille"
+                  style={{
+                    background: a.urgence === 'haute' ? '#c34a3e' : '#75808b',
+                    alignSelf: 'center'
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong>{a.titre}</strong>
+                  {a.detail && (
+                    <div className="aide" style={{ marginTop: 2 }}>
+                      {a.detail}
+                    </div>
+                  )}
+                </div>
+                <span className="mono" style={{ color: 'var(--gris)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  {a.expediteur}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

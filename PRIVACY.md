@@ -1,6 +1,6 @@
 # Politique de confidentialité — Médor
 
-*Dernière mise à jour : 3 septembre 2026*
+*Dernière mise à jour : 4 septembre 2026*
 
 Médor est une application de bureau qui aide à ranger votre boîte mail (création de
 libellés, archivage des messages déjà lus, repérage des newsletters et des indésirables).
@@ -23,7 +23,9 @@ Aucune donnée n'est envoyée au développeur de Médor ni à un quelconque inte
   quittent jamais votre machine, sauf vers le fournisseur de messagerie concerné pour
   s'authentifier.
 - **En-têtes de vos e-mails** (expéditeur, objet, date, statut lu/non-lu, en-têtes de
-  désabonnement) : lus pour analyser la boîte. Le **corps des messages n'est jamais lu**.
+  désabonnement) : lus pour analyser la boîte. Le **corps des messages n'est jamais lu
+  pour le rangement** ; seule la fonction « À faire cette semaine », lancée par vous, en
+  lit un court extrait.
 
 ## Utilisation de l'accès Gmail / Outlook / IMAP
 
@@ -43,8 +45,10 @@ Aucun message n'est supprimé. Aucun e-mail n'est envoyé en votre nom.
 Si — et seulement si — vous activez l'IA (votre clé API Anthropic, ou votre abonnement
 Claude Code déjà installé), Médor envoie à Claude, pour classement : nom d'expéditeur,
 adresse, domaine, quelques objets de messages et des statistiques de volume. Jamais le
-corps des messages, jamais vos identifiants. Sans IA, un classement local s'applique et
-rien ne sort de votre machine.
+corps des messages, jamais vos identifiants. Exception unique et à la demande : la
+fonction « À faire cette semaine » envoie aussi un court extrait (≤ 500 caractères) des
+mails personnels des 7 derniers jours pour repérer les réponses attendues — jamais en
+tâche de fond. Sans IA, un classement local s'applique et rien ne sort de votre machine.
 
 ## Partage et conservation
 

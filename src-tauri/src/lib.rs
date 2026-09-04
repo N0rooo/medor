@@ -91,6 +91,8 @@ pub fn run() {
             commands::auto_defer,
             commands::auto_next,
             commands::get_last_plan,
+            commands::action_items,
+            commands::get_actions,
             commands::rescan_organized,
             commands::mailbox_tree,
             commands::get_last_tree,
