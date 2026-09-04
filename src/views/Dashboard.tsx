@@ -1315,47 +1315,64 @@ export function Newsletters({
                 <td className="mono">{tauxLecture}&nbsp;% lus</td>
                 <td className="mono">{s.lastDate || '—'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {statuts[s.key] ? (
-                    <span className="aide">{statuts[s.key]}</span>
-                  ) : armeSuppr === s.key ? (
-                    <>
-                      <span className="aide">Mettre les {s.total} mails à la corbeille ?</span>{' '}
-                      <button className="danger" disabled={occupe || occupes[s.key]} onClick={() => supprimer(s)}>
-                        Oui
-                      </button>{' '}
-                      <button className="secondaire" onClick={() => setArmeSuppr(null)}>
-                        Non
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {peut &&
-                        (s.unsubscribeHttp ? (
+                  {(() => {
+                    // Les deux actions restent indépendantes : se désabonner ne
+                    // cache pas la corbeille, et supprimer n'empêche pas de se
+                    // désabonner ensuite.
+                    const st = statuts[s.key] ?? ''
+                    const dejaSupprime = st.startsWith('🗑️')
+                    const dejaDesabonne = st.startsWith('✓') || st.startsWith('Lien')
+                    if (armeSuppr === s.key) {
+                      return (
+                        <>
+                          <span className="aide">Mettre les {s.total} mails à la corbeille ?</span>{' '}
                           <button
                             className="danger"
                             disabled={occupe || occupes[s.key]}
-                            onClick={() => desabonner(s)}
+                            onClick={() => supprimer(s)}
                           >
-                            {occupes[s.key] ? '…' : 'Se désabonner'}
+                            Oui
+                          </button>{' '}
+                          <button className="secondaire" onClick={() => setArmeSuppr(null)}>
+                            Non
                           </button>
-                        ) : (
+                        </>
+                      )
+                    }
+                    return (
+                      <>
+                        {st && <span className="aide">{st}</span>}{' '}
+                        {peut &&
+                          !dejaDesabonne &&
+                          (s.unsubscribeHttp ? (
+                            <button
+                              className="danger"
+                              disabled={occupe || occupes[s.key]}
+                              onClick={() => desabonner(s)}
+                            >
+                              {occupes[s.key] ? '…' : 'Se désabonner'}
+                            </button>
+                          ) : (
+                            <button
+                              className="secondaire"
+                              onClick={() => api.openUrl(s.unsubscribeMailto!)}
+                            >
+                              Par e-mail
+                            </button>
+                          ))}{' '}
+                        {!dejaSupprime && (
                           <button
                             className="secondaire"
-                            onClick={() => api.openUrl(s.unsubscribeMailto!)}
+                            title={`Mettre les ${s.total} mails de cet expéditeur à la corbeille`}
+                            disabled={occupe || occupes[s.key]}
+                            onClick={() => setArmeSuppr(s.key)}
                           >
-                            Par e-mail
+                            🗑️
                           </button>
-                        ))}{' '}
-                      <button
-                        className="secondaire"
-                        title={`Mettre les ${s.total} mails de cet expéditeur à la corbeille`}
-                        disabled={occupe || occupes[s.key]}
-                        onClick={() => setArmeSuppr(s.key)}
-                      >
-                        🗑️
-                      </button>
-                    </>
-                  )}
+                        )}
+                      </>
+                    )
+                  })()}
                 </td>
               </tr>
             )
