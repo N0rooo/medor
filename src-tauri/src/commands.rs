@@ -1473,26 +1473,29 @@ pub async fn trash_senders(
             }
         }
 
-        let mut cfg2 = store::load_config(&app);
-        journal_push(
-            &mut cfg2,
-            JournalEntry {
-                id: uuid::Uuid::new_v4().to_string(),
-                account_id: account_id.clone(),
-                account_email: account.email.clone(),
-                ts: chrono::Utc::now().timestamp(),
-                kind: "corbeille".into(),
-                archived: 0,
-                junked: 0,
-                trashed: count,
-                restored: 0,
-                labels_created: 0,
-                labels: Vec::new(),
-                detail: detail_corbeille,
-                ..Default::default()
-            },
-        );
-        store::save_config(&app, &cfg2);
+        // Une action qui n'a rien déplacé n'encombre pas le Journal.
+        if count > 0 {
+            let mut cfg2 = store::load_config(&app);
+            journal_push(
+                &mut cfg2,
+                JournalEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    account_id: account_id.clone(),
+                    account_email: account.email.clone(),
+                    ts: chrono::Utc::now().timestamp(),
+                    kind: "corbeille".into(),
+                    archived: 0,
+                    junked: 0,
+                    trashed: count,
+                    restored: 0,
+                    labels_created: 0,
+                    labels: Vec::new(),
+                    detail: detail_corbeille,
+                    ..Default::default()
+                },
+            );
+            store::save_config(&app, &cfg2);
+        }
 
         // Répercuter la suppression dans l'analyse persistée : ces expéditeurs
         // ne « reviennent » plus au prochain lancement.
@@ -1763,6 +1766,7 @@ pub async fn trash_folder(
         let _ = session.logout();
 
         let mut cfg2 = store::load_config(&app);
+        if count > 0 || folder_deleted {
         journal_push(
             &mut cfg2,
             JournalEntry {
@@ -1784,6 +1788,7 @@ pub async fn trash_folder(
                 ..Default::default()
             },
         );
+        }
         store::save_config(&app, &cfg2);
         let (vides, supprimes): (Vec<String>, Vec<String>) = if folder_deleted {
             (Vec::new(), vec![folder.clone()])
@@ -1862,26 +1867,28 @@ pub async fn trash_folders(
         }
         let _ = session.logout();
 
-        let mut cfg2 = store::load_config(&app);
-        journal_push(
-            &mut cfg2,
-            JournalEntry {
-                id: uuid::Uuid::new_v4().to_string(),
-                account_id: account_id.clone(),
-                account_email: account.email.clone(),
-                ts: chrono::Utc::now().timestamp(),
-                kind: "corbeille".into(),
-                archived: 0,
-                junked: 0,
-                trashed: total_trashed,
-                restored: 0,
-                labels_created: 0,
-                labels: folders.clone(),
-                detail: detail_selection,
-                ..Default::default()
-            },
-        );
-        store::save_config(&app, &cfg2);
+        if total_trashed > 0 || !deleted.is_empty() {
+            let mut cfg2 = store::load_config(&app);
+            journal_push(
+                &mut cfg2,
+                JournalEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    account_id: account_id.clone(),
+                    account_email: account.email.clone(),
+                    ts: chrono::Utc::now().timestamp(),
+                    kind: "corbeille".into(),
+                    archived: 0,
+                    junked: 0,
+                    trashed: total_trashed,
+                    restored: 0,
+                    labels_created: 0,
+                    labels: folders.clone(),
+                    detail: detail_selection,
+                    ..Default::default()
+                },
+            );
+            store::save_config(&app, &cfg2);
+        }
         let vides: Vec<String> = folders
             .iter()
             .filter(|f| !deleted.contains(f))
