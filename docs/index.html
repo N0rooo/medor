@@ -26,6 +26,8 @@
       --mono: ui-monospace, 'SF Mono', Menlo, monospace;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    ::selection { background: #27519f; color: #fff; }
     body {
       margin: 0;
       font-family: var(--texte);
@@ -54,7 +56,35 @@
     header.site a:hover { color: var(--encre); }
 
     /* ------------------------------------------------------------- héros */
-    .heros { text-align: center; padding: 56px 0 30px; }
+    .heros {
+      text-align: center; padding: 64px 0 40px; position: relative;
+    }
+    .heros::before {
+      content: ''; position: absolute; inset: -120px -40vw 0;
+      background:
+        radial-gradient(720px 340px at 50% 0%, rgba(39, 81, 159, 0.10), transparent 70%),
+        radial-gradient(520px 300px at 82% 12%, rgba(195, 74, 62, 0.07), transparent 70%);
+      pointer-events: none; z-index: -1;
+    }
+    .timbre {
+      position: absolute; top: 26px; right: 2%;
+      width: 86px; height: 104px; padding: 7px;
+      background: #fff; border: 2px dashed var(--rouge); border-radius: 6px;
+      transform: rotate(7deg); opacity: .95;
+      box-shadow: 0 10px 24px rgba(29,42,58,.12);
+    }
+    .timbre img { width: 100%; height: 74px; object-fit: cover; border-radius: 4px; }
+    .timbre span {
+      display: block; text-align: center; font-family: var(--mono);
+      font-size: 9.5px; color: var(--rouge); margin-top: 3px; letter-spacing: .12em;
+    }
+    @media (max-width: 900px) { .timbre { display: none; } }
+    .surtitre {
+      display: inline-block; font-family: var(--mono); font-size: 12px;
+      letter-spacing: .18em; text-transform: uppercase; color: var(--rouge);
+      border: 1.5px dashed var(--rouge); border-radius: 999px; padding: 5px 14px;
+      margin-bottom: 18px; background: #fff;
+    }
     .heros img.mascotte {
       width: 132px; height: 132px; border-radius: 22%;
       animation: joie 1.1s ease-in-out infinite;
@@ -83,7 +113,11 @@
       transition: transform .12s ease;
     }
     .bouton:hover { transform: translateY(-2px); }
-    .bouton.os { background: var(--encre); color: #fff; }
+    .bouton.os {
+      background: var(--encre); color: #fff;
+      box-shadow: 0 12px 28px rgba(29, 42, 58, .28);
+    }
+    .bouton.os:hover { box-shadow: 0 18px 38px rgba(29, 42, 58, .34); }
     .bouton.discret { background: transparent; color: var(--bleu); font-weight: 600; font-size: 15px; }
     .precision { color: var(--gris); font-size: 13px; margin-top: 14px; font-family: var(--mono); }
 
@@ -95,17 +129,22 @@
 
     /* --------------------------------------------------------- la punchline */
     .punch {
-      text-align: center; padding: 46px 0 8px;
+      text-align: center; padding: 34px 26px;
       font-family: var(--titre); font-size: clamp(22px, 3.4vw, 30px);
       font-weight: 600;
+      max-width: 640px; margin: 56px auto 8px;
+      background: #fff; border: 2px dashed var(--ligne); border-radius: 16px;
+      transform: rotate(-0.5deg);
+      box-shadow: 0 10px 30px rgba(29, 42, 58, .06);
     }
     .punch .gris { color: var(--gris); }
 
     /* ------------------------------------------------------------ features */
     .grille {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 16px; padding: 34px 0 10px;
+      gap: 18px; padding: 26px 0 10px;
     }
+    .tete-section { text-align: center; margin-top: 60px; }
     .carte {
       background: var(--carte); border: 1px solid var(--ligne);
       border-radius: 16px; padding: 24px 22px;
@@ -165,10 +204,22 @@
       font-family: var(--titre); font-size: clamp(26px, 4vw, 34px);
       text-align: center; margin: 0 0 30px;
     }
-    .pas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .pas {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px; position: relative;
+    }
+    .pas::before {
+      content: ''; position: absolute; top: 38px; left: 8%; right: 8%;
+      border-top: 2px dashed var(--ligne); z-index: 0;
+    }
     .pas .un {
-      background: var(--carte); border: 1px solid var(--ligne); border-radius: 14px;
-      padding: 24px 22px;
+      background: var(--carte); border: 1px solid var(--ligne); border-radius: 16px;
+      padding: 24px 22px; position: relative; z-index: 1;
+      transition: transform .16s ease, box-shadow .16s ease;
+    }
+    .pas .un:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 14px 30px rgba(29, 42, 58, .10);
     }
     .pas .num {
       font-family: var(--mono); font-size: 13px; color: var(--rouge);
@@ -180,8 +231,17 @@
 
     /* ---------------------------------------------------------- vie privée */
     section.privee {
-      margin: 56px 0 0; background: var(--encre); border-radius: 18px;
-      padding: 44px 38px; color: #eef0ee;
+      margin: 64px 0 0; border-radius: 20px;
+      padding: 46px 40px; color: #eef0ee; position: relative; overflow: hidden;
+      background:
+        radial-gradient(600px 280px at 85% -10%, rgba(39, 81, 159, .55), transparent 70%),
+        var(--encre);
+    }
+    section.privee::after {
+      content: ''; position: absolute; inset: 0 0 auto 0; height: 6px;
+      background: repeating-linear-gradient(-45deg,
+        var(--bleu) 0 16px, rgba(255,255,255,.9) 16px 25px,
+        var(--rouge) 25px 41px, rgba(255,255,255,.9) 41px 50px);
     }
     section.privee h2 { font-family: var(--titre); font-size: clamp(24px, 3.6vw, 32px); margin: 0 0 14px; color: #fff; }
     section.privee p { color: #b8c0c9; max-width: 660px; margin: 0 0 10px; font-size: 15.5px; }
@@ -216,6 +276,10 @@
     </header>
 
     <section class="heros">
+      <div class="timbre" aria-hidden="true">
+        <img src="medor.png" alt="">
+        <span>MÉDOR · 2026</span>
+      </div>
       <img class="mascotte" src="medor.png" alt="Médor, le chien qui range ta boîte mail">
       <h1>Le chien qui range<br>ta boîte mail.</h1>
       <p class="sous">
@@ -257,7 +321,10 @@
 
     <p class="punch">Ta boîte de réception déborde.<br><span class="gris">Tu n'y penses plus. Lui, si.</span></p>
 
-    <section class="grille" id="fonctions">
+    <div class="tete-section" id="fonctions">
+      <span class="surtitre">Ce qu'il fait</span>
+    </div>
+    <section class="grille">
       <div class="carte" style="--accent:#27519f">
         <span class="picto">🔌</span>
         <h3>Ta boîte, en un clic</h3>
@@ -291,6 +358,9 @@
     </section>
 
     <section class="etapes">
+      <div class="tete-section" style="margin-top: 24px;">
+        <span class="surtitre">Mode d'emploi</span>
+      </div>
       <h2 class="section">Trois gestes, une boîte rangée</h2>
       <div class="pas">
         <div class="un">
