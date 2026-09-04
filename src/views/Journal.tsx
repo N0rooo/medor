@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { JournalEntry } from '../types'
 import Mascotte from '../Mascotte'
+import CompteRendu from '../CompteRendu'
 
 const KINDS: Record<JournalEntry['kind'], { icone: string; titre: string }> = {
   rangement: { icone: '•', titre: 'Rangement' },
@@ -98,11 +99,7 @@ export default function Journal({ bloque }: { bloque: boolean }) {
               <summary className="aide" style={{ cursor: 'pointer' }}>
                 Voir le détail ({e.detail!.length})
               </summary>
-              <ul className="aide" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                {e.detail!.map((ligne, i) => (
-                  <li key={i}>{ligne}</li>
-                ))}
-              </ul>
+              <CompteRendu lignes={e.detail!} />
             </details>
           )}
           {(e.kind === 'rangement' || e.kind === 'auto') && e.labels.length > 0 && index !== 0 && (

@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { AppBootstrap, ApplyProgress, JournalEntry, Plan, SenderGroup } from '../types'
 import { Newsletters } from './Dashboard'
 import Mascotte from '../Mascotte'
+import CompteRendu from '../CompteRendu'
 
 /**
  * L'écran principal du Médor simple : un gros bouton qui range tout seul
@@ -157,19 +158,7 @@ export default function Simple({
             <summary className="aide" style={{ cursor: 'pointer' }}>
               Ce que Médor a fait ({detailPassage.length} libellés)
             </summary>
-            <ul
-              className="aide"
-              style={{
-                margin: '8px 0 0',
-                paddingLeft: 18,
-                maxHeight: 300,
-                overflowY: 'auto'
-              }}
-            >
-              {detailPassage.map((ligne, i) => (
-                <li key={i}>{ligne}</li>
-              ))}
-            </ul>
+            <CompteRendu lignes={detailPassage} />
           </details>
         )}
       </div>

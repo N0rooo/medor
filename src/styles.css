@@ -1262,3 +1262,94 @@ button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Compte-rendu de rangement : carte-lignes avec barres proportionnelles. */
+
+.cr-liste {
+  margin-top: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.cr-ligne {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border: 1px solid var(--ligne);
+  border-radius: 9px;
+  background: var(--carte);
+  overflow: hidden;
+}
+
+.cr-remplissage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  opacity: 0.13;
+}
+
+.cr-pastille {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: none;
+  position: relative;
+}
+
+.cr-nom {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  position: relative;
+  text-align: left;
+}
+
+.cr-nom span {
+  color: var(--gris);
+}
+
+.cr-nb {
+  font-size: 12.5px;
+  position: relative;
+}
+
+.cr-brut {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  color: var(--gris);
+  text-align: left;
+}
+
+.cr-chevron {
+  width: 12px;
+  flex: none;
+  color: var(--gris);
+  font-size: 11px;
+  position: relative;
+  text-align: center;
+}
+
+.cr-enfants {
+  margin: 4px 0 6px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cr-sous {
+  padding: 5px 10px;
+  font-size: 12.5px;
+}

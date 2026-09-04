@@ -8,6 +8,7 @@ import Simple from './views/Simple'
 import Reglages from './views/Reglages'
 import Mascotte from './Mascotte'
 import Bandeau from './Bandeau'
+import CompteRendu from './CompteRendu'
 import { api, onApplyProgress, onBoucleProgress, onOpEtat, onScanProgress } from './api'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -33,6 +34,7 @@ export default function App() {
   const [journalNonVus, setJournalNonVus] = useState(0)
   /** Récap de ce que Médor a fait pendant l'absence (fermeture de l'app). */
   const [recap, setRecap] = useState<string | null>(null)
+  const [recapDetail, setRecapDetail] = useState<string[]>([])
 
   const majPastilleJournal = useCallback(async () => {
     try {
@@ -141,6 +143,25 @@ export default function App() {
           morceaux.length > 0 ? morceaux.join(' · ') : 'aucun mail déplacé'
         }`
       )
+      // Détail fusionné (mêmes libellés additionnés entre les passes).
+      const compte = new Map<string, number>()
+      const autres: string[] = []
+      for (const e of absentes) {
+        for (const ligne of e.detail ?? []) {
+          const m = ligne.match(/^« (.+) » — ([\d\s  ]+) mails?/)
+          if (m) {
+            compte.set(m[1], (compte.get(m[1]) ?? 0) + parseInt(m[2].replace(/\D/g, ''), 10))
+          } else {
+            autres.push(ligne)
+          }
+        }
+      }
+      setRecapDetail([
+        ...[...compte.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([nom, n]) => `« ${nom} » — ${n} mails`),
+        ...autres
+      ])
     })
   }, [rafraichir, majPastilleJournal])
 
@@ -242,7 +263,7 @@ export default function App() {
         {vue === 'journal' && <Journal bloque={opsActives > 0} />}
         {vue === 'reglages' && <Reglages boot={boot} occupe={opsActives > 0} onChanged={rafraichir} />}
         {recap && !maj && (
-          <div className="popup-auto">
+          <div className="popup-auto" style={{ width: 480, maxWidth: '92vw' }}>
             <div className="popup-auto-tete">
               <Mascotte taille={34} />
               <div>
@@ -250,6 +271,11 @@ export default function App() {
                 <p>{recap}</p>
               </div>
             </div>
+            {recapDetail.length > 0 && (
+              <div style={{ maxHeight: 300, overflowY: 'auto', marginTop: 4 }}>
+                <CompteRendu lignes={recapDetail} />
+              </div>
+            )}
             <div className="popup-auto-actions">
               <button
                 className="secondaire"
