@@ -561,29 +561,42 @@ pub fn trash_senders_by_address(
     session: &mut ImapSession,
     cibles: &[(String, Option<String>)],
     cancel: &AtomicBool,
-    emit: &dyn Fn(u32, u32),
+    emit: &dyn Fn(u32, u32, bool),
 ) -> Result<u32, String> {
     let (trash, delimiter) = dossier_corbeille(session)?;
 
-    let mut dossiers: Vec<String> = vec!["INBOX".to_string()];
-    for (_, label) in cibles {
+    // Chaque adresse n'est cherchée que là où elle peut être : son propre
+    // dossier de rangement — plus la boîte de réception pour tout le monde.
+    // (Chercher toutes les adresses dans tous les dossiers était quadratique :
+    // des milliers de commandes IMAP et des minutes de silence.)
+    let toutes: Vec<String> = cibles.iter().map(|(a, _)| a.clone()).collect();
+    let mut par_dossier: Vec<(String, Vec<String>)> = vec![("INBOX".to_string(), toutes)];
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (adresse, label) in cibles {
         if let Some(label) = label {
             let wire = super::utf7::encode(&label.replace('/', &delimiter));
-            if !dossiers.contains(&wire) {
-                dossiers.push(wire);
-            }
+            let i = *index.entry(wire.clone()).or_insert_with(|| {
+                par_dossier.push((wire, Vec::new()));
+                par_dossier.len() - 1
+            });
+            par_dossier[i].1.push(adresse.clone());
         }
     }
 
-    // Pré-inventaire par dossier : total réel pour une progression honnête.
+    // Pré-inventaire, avec progression (en dossiers) et annulation.
+    let total_dossiers = par_dossier.len() as u32;
     let mut travaux: Vec<(String, Vec<u32>)> = Vec::new();
     let mut total: u32 = 0;
-    for dossier in &dossiers {
+    for (i, (dossier, adresses)) in par_dossier.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(0);
+        }
+        emit(i as u32, total_dossiers, true);
         if session.select(dossier).is_err() {
             continue;
         }
         let mut uids: Vec<u32> = Vec::new();
-        for (adresse, _) in cibles {
+        for adresse in adresses {
             if let Ok(set) = session.uid_search(format!("FROM \"{}\"", adresse.replace('"', ""))) {
                 uids.extend(set);
             }
@@ -595,7 +608,7 @@ pub fn trash_senders_by_address(
             travaux.push((dossier.clone(), uids));
         }
     }
-    emit(0, total);
+    emit(0, total, false);
 
     let mut count: u32 = 0;
     for (dossier, uids) in travaux {
@@ -614,7 +627,7 @@ pub fn trash_senders_by_address(
             if move_uids(session, &set, &trash).is_ok() {
                 count += chunk.len() as u32;
             }
-            emit(count.min(total), total);
+            emit(count.min(total), total, false);
         }
     }
     Ok(count)

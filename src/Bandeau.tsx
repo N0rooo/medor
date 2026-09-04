@@ -108,11 +108,12 @@ export default function Bandeau({
     titre = 'Médor range…'
     note = applique.label ? `${applique.label}` : 'Préparation…'
     if (applique.total > 0) {
-      const unite = applique.label.startsWith('Nettoyage')
-        ? 'dossiers'
-        : applique.label.startsWith('Désabonnements')
-          ? 'newsletters'
-          : 'mails'
+      const unite =
+        applique.label.startsWith('Nettoyage') || applique.label.includes('préparation')
+          ? 'dossiers'
+          : applique.label.startsWith('Désabonnements')
+            ? 'newsletters'
+            : 'mails'
       note += ` — ${applique.done.toLocaleString('fr-FR')}/${applique.total.toLocaleString('fr-FR')} ${unite}`
       note += suffixeRestant(applique.done, applique.total)
     }

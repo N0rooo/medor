@@ -227,7 +227,7 @@ export default function Simple({
           depuis le Journal.
         </p>
         <button className="principal large" onClick={ranger} disabled={occupe}>
-          {occupe ? 'Médor s’active…' : 'Ranger ma boîte'}
+          {occupe ? 'Médor s’active…' : 'Analyser et ranger ma boîte'}
         </button>
         <div
           style={{

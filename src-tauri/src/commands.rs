@@ -1480,13 +1480,17 @@ pub async fn trash_senders(
             .clone();
 
         let mut session = crate::mail::open_session(&app, &account)?;
-        let emit = |done: u32, total: u32| {
+        let emit = |done: u32, total: u32, preparation: bool| {
             let _ = app.emit(
                 "apply-progress",
                 ApplyProgress {
                     done,
                     total,
-                    label: "Corbeille".into(),
+                    label: if preparation {
+                        "Corbeille — préparation".into()
+                    } else {
+                        "Corbeille".into()
+                    },
                 },
             );
         };
