@@ -555,9 +555,11 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
             >
               Newsletters<span className="compteur">{plan.newsletters.length}</span>
             </button>
-            <button className={onglet === 'spam' ? 'actif' : ''} onClick={() => setOnglet('spam')}>
-              Indésirables<span className="compteur">{plan.spamSuspects.length}</span>
-            </button>
+            {plan.spamSuspects.length > 0 && (
+              <button className={onglet === 'spam' ? 'actif' : ''} onClick={() => setOnglet('spam')}>
+                Indésirables<span className="compteur">{plan.spamSuspects.length}</span>
+              </button>
+            )}
           </div>
 
           {onglet === 'libelles' && !rangeFait && (

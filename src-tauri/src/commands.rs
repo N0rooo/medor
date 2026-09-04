@@ -604,6 +604,16 @@ fn scan_blocking(app: AppHandle, account_id: String, scope: String, fresh: bool)
         }
     }
 
+    // Les newsletters ne méritent pas de tri fin : direction le dossier
+    // « Newsletters », et l'IA ne travaille que sur les vrais mails —
+    // analyses plus rapides, taxonomie plus propre.
+    for group in groups.iter_mut() {
+        if group.is_newsletter {
+            group.label = "Newsletters".into();
+            regles_appliquees.insert(group.key.clone());
+        }
+    }
+
     // Suivi des désabonnements : signale ceux qui écrivent encore.
     for group in groups.iter_mut() {
         if let Some(ts) = cfg.unsubscribed.get(&group.key) {
@@ -763,7 +773,15 @@ pub async fn get_last_plan(app: AppHandle, account_id: String) -> Result<Option<
     if let Some(cache) = state.scans.lock().unwrap().get(&account_id) {
         return Ok(Some(cache.plan.clone()));
     }
-    if let Some(stocke) = store::load_plan(&app, &account_id) {
+    if let Some(mut stocke) = store::load_plan(&app, &account_id) {
+        // Les désabonnements faits depuis l'analyse restent visibles.
+        let cfg = store::load_config(&app);
+        for sender in stocke.plan.senders.iter_mut() {
+            if let Some(ts) = cfg.unsubscribed.get(&sender.key) {
+                sender.unsubscribed_at = Some(*ts);
+                sender.still_mailing = sender.last_ts > ts + 3 * 86400;
+            }
+        }
         let plan = stocke.plan.clone();
         state
             .scans
@@ -1475,6 +1493,31 @@ pub async fn trash_senders(
             },
         );
         store::save_config(&app, &cfg2);
+
+        // Répercuter la suppression dans l'analyse persistée : ces expéditeurs
+        // ne « reviennent » plus au prochain lancement.
+        if let Some(mut stocke) = store::load_plan(&app, &account_id) {
+            let cles: HashSet<&String> = sender_keys.iter().collect();
+            stocke.plan.senders.retain(|x| !cles.contains(&x.key));
+            stocke.plan.newsletters.retain(|k| !cles.contains(k));
+            stocke.plan.spam_suspects.retain(|k| !cles.contains(k));
+            for l in stocke.plan.labels.iter_mut() {
+                l.sender_keys.retain(|k| !cles.contains(k));
+            }
+            stocke.plan.labels.retain(|l| !l.sender_keys.is_empty());
+            for k in &sender_keys {
+                stocke.uids.remove(k);
+            }
+            store::save_plan(&app, &account_id, &stocke);
+            let state = app.state::<AppState>();
+            state.scans.lock().unwrap().insert(
+                account_id.clone(),
+                ScanCache {
+                    uids: stocke.uids,
+                    plan: stocke.plan,
+                },
+            );
+        }
         Ok(count)
     })
     .await

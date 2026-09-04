@@ -307,6 +307,10 @@ pub fn normaliser_hierarchie(groups: &mut [SenderGroup], existing_labels: &[Stri
     for group in groups.iter_mut() {
         let segs: Vec<String> = group.label.split('/').map(|s| s.to_string()).collect();
         let racine_min = segs[0].to_lowercase();
+        // « Newsletters » est un dossier pivot voulu tel quel : jamais rabattu.
+        if racine_min == "newsletters" {
+            continue;
+        }
         // La racine du libellé est connue ailleurs comme sous-catégorie ?
         if let Some(chemin) = sous_vers_chemin.get(&racine_min) {
             // Ne pas toucher aux libellés déjà bien placés (« Sport/… »).
