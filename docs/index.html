@@ -36,6 +36,7 @@
       background: var(--papier);
       -webkit-font-smoothing: antialiased;
       line-height: 1.55;
+      overflow-x: clip;
     }
     .liseret {
       height: 6px;
@@ -60,7 +61,7 @@
       text-align: center; padding: 64px 0 40px; position: relative;
     }
     .heros::before {
-      content: ''; position: absolute; inset: -120px -40vw 0;
+      content: ''; position: absolute; inset: -120px -30vw 0;
       background:
         radial-gradient(720px 340px at 50% 0%, rgba(39, 81, 159, 0.10), transparent 70%),
         radial-gradient(520px 300px at 82% 12%, rgba(195, 74, 62, 0.07), transparent 70%);
