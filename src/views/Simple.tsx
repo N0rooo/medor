@@ -374,7 +374,8 @@ export default function Simple({
       </div>
 
       {confirmation && (
-        <div className="carte ombre">
+        <div className="voile" onClick={() => setConfirmation(null)}>
+        <div className="modale" onClick={(e) => e.stopPropagation()}>
           <h2 style={{ margin: 0 }}>
             {confirmation === 'supprimer'
               ? 'Supprimer les mails commerciaux'
@@ -388,7 +389,7 @@ export default function Simple({
           </p>
           <div
             style={{
-              maxHeight: 320,
+              maxHeight: '52vh',
               overflowY: 'auto',
               border: '1px solid var(--ligne)',
               borderRadius: 10,
@@ -449,6 +450,7 @@ export default function Simple({
               Annuler
             </button>
           </div>
+        </div>
         </div>
       )}
 
