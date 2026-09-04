@@ -543,6 +543,16 @@ export default function Dashboard({ boot, occupe, accountId, onSelectAccount, on
           {infoAnalyse && <div className="info">{infoAnalyse}</div>}
           {plan.aiNote && <div className="info">{plan.aiNote}</div>}
 
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button
+              className="secondaire"
+              disabled={occupe || scan !== null}
+              onClick={() => setPlan(null)}
+            >
+              🔄 Nouvelle analyse
+            </button>
+          </div>
+
           <div className="onglets">
             {!rangeFait && (
               <button className={onglet === 'libelles' ? 'actif' : ''} onClick={() => setOnglet('libelles')}>
