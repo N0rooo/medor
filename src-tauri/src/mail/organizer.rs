@@ -439,7 +439,12 @@ pub fn restore_to_inbox(
 /// tous les dossiers personnels vivent sous INBOX.).
 pub fn sans_prefixe_inbox(nom: &str, delimiter: &str) -> String {
     let prefixe = format!("inbox{delimiter}");
-    if nom.len() > prefixe.len() && nom[..prefixe.len()].eq_ignore_ascii_case(&prefixe) {
+    // is_char_boundary : une coupe qui tombe au milieu d'un accent (« Éléments
+    // envoyés »…) ne peut pas être le préfixe ASCII — et trancher là paniquerait.
+    if nom.len() > prefixe.len()
+        && nom.is_char_boundary(prefixe.len())
+        && nom[..prefixe.len()].eq_ignore_ascii_case(&prefixe)
+    {
         nom[prefixe.len()..].to_string()
     } else {
         nom.to_string()
