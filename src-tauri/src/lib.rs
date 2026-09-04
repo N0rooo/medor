@@ -89,6 +89,7 @@ pub fn run() {
             commands::auto_pending,
             commands::auto_run_now,
             commands::auto_defer,
+            commands::auto_next,
             commands::get_last_plan,
             commands::rescan_organized,
             commands::mailbox_tree,

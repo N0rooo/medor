@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AccountConfig, AppBootstrap } from './types'
 import Accueil from './views/Accueil'
-import Dashboard from './views/Dashboard'
 import Journal from './views/Journal'
 import MaBoite from './views/MaBoite'
 import Simple from './views/Simple'
@@ -229,19 +228,6 @@ export default function App() {
         {vue === 'accueil' && (
           <Accueil boot={boot} onAccountAdded={compteAjoute} onOpenSettings={() => setVue('reglages')} />
         )}
-        {/* Le tableau de bord reste monté en arrière-plan : changer d'onglet
-            ne perd pas l'analyse en cours ni le plan affiché. */}
-        {compteId && (
-          <div style={{ display: vue === 'tableau' ? 'block' : 'none' }}>
-            <Dashboard
-              boot={boot}
-              occupe={opsActives > 0}
-              accountId={compteId}
-              onSelectAccount={setCompteId}
-              onAddAccount={() => setVue('accueil')}
-            />
-          </div>
-        )}
         {compteId && (
           <div style={{ display: vue === 'boite' ? 'block' : 'none' }}>
             <MaBoite
@@ -263,7 +249,6 @@ export default function App() {
               actif={vue === 'simple'}
               onSelectAccount={setCompteId}
               onAddAccount={() => setVue('accueil')}
-              onOuvrirAvance={() => setVue('tableau')}
             />
           </div>
         )}

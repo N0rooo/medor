@@ -1147,6 +1147,42 @@ pub fn auto_defer(app: AppHandle) {
     store::save_config(&app, &cfg);
 }
 
+/// Horodatage (epoch s) de la prochaine passe automatique, si activée.
+/// Une passe en retard renvoie « maintenant ».
+#[tauri::command]
+pub fn auto_next(app: AppHandle) -> Option<i64> {
+    let cfg = store::load_config(&app);
+    if !cfg.settings.auto_enabled || cfg.accounts.is_empty() {
+        return None;
+    }
+    let now = chrono::Local::now();
+    let maintenant = now.timestamp();
+    let prochain = match cfg.settings.auto_frequency.as_str() {
+        "1h" => cfg.last_auto_run + 3600,
+        "6h" => cfg.last_auto_run + 6 * 3600,
+        _ => {
+            use chrono::Timelike;
+            let heure = cfg.settings.auto_hour as u32;
+            let fait_aujourdhui = chrono::DateTime::from_timestamp(cfg.last_auto_run, 0)
+                .map(|d| d.with_timezone(&chrono::Local).date_naive() == now.date_naive())
+                .unwrap_or(false);
+            let jour = if fait_aujourdhui {
+                now.date_naive() + chrono::Duration::days(1)
+            } else if now.hour() >= heure {
+                // pas encore fait aujourd'hui mais heure passée : dû maintenant
+                return Some(maintenant);
+            } else {
+                now.date_naive()
+            };
+            let cible = jour.and_hms_opt(heure, 0, 0)?;
+            chrono::TimeZone::from_local_datetime(&chrono::Local, &cible)
+                .single()?
+                .timestamp()
+        }
+    };
+    Some(prochain.max(maintenant))
+}
+
 fn auto_due(settings: &Settings, last_run: i64) -> bool {
     use chrono::Timelike;
     let now = chrono::Local::now();

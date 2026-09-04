@@ -42,6 +42,7 @@ export const api = {
   autoPending: () => invoke<boolean>('auto_pending'),
   autoRunNow: () => invoke<void>('auto_run_now'),
   autoDefer: () => invoke<void>('auto_defer'),
+  autoNext: () => invoke<number | null>('auto_next'),
 
   getLastPlan: (accountId: string) => invoke<Plan | null>('get_last_plan', { accountId }),
   rescanOrganized: (accountId: string) => invoke<Plan>('rescan_organized', { accountId }),

@@ -16,8 +16,7 @@ export default function Simple({
   occupe,
   actif,
   onSelectAccount,
-  onAddAccount,
-  onOuvrirAvance
+  onAddAccount
 }: {
   boot: AppBootstrap
   accountId: string
@@ -25,10 +24,10 @@ export default function Simple({
   actif: boolean
   onSelectAccount: (id: string) => void
   onAddAccount: () => void
-  onOuvrirAvance: () => void
 }) {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [dernier, setDernier] = useState<string | null>(null)
+  const [prochaine, setProchaine] = useState<string | null>(null)
   const [detailPassage, setDetailPassage] = useState<string[]>([])
   const [montrerDetail, setMontrerDetail] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -57,6 +56,22 @@ export default function Simple({
           : null
       )
       setDetailPassage(passage?.detail ?? [])
+      const prochain = await api.autoNext()
+      if (prochain == null) {
+        setProchaine(null)
+      } else {
+        const delta = prochain - Math.floor(Date.now() / 1000)
+        const quand = new Date(prochain * 1000)
+        const heure = quand.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        const demain = quand.getDate() !== new Date().getDate()
+        setProchaine(
+          delta <= 90
+            ? 'imminente'
+            : delta < 3600
+              ? `dans ${Math.round(delta / 60)} min (à ${heure})`
+              : `${demain ? 'demain' : "aujourd'hui"} à ${heure}`
+        )
+      }
     } catch {
       /* silencieux */
     }
@@ -146,9 +161,11 @@ export default function Simple({
         <button className="principal large" onClick={ranger} disabled={occupe}>
           {occupe ? 'Médor s’active…' : 'Ranger ma boîte'}
         </button>
-        {dernier && (
+        {(dernier || prochaine) && (
           <p className="precision" style={{ marginTop: 16, color: 'var(--gris)', fontSize: 13 }}>
-            Dernier passage : {dernier}
+            {dernier && <>Dernier passage : {dernier}</>}
+            {dernier && prochaine && ' · '}
+            {prochaine && <>Prochaine analyse auto : {prochaine}</>}
           </p>
         )}
         {message && <div className="info" style={{ marginTop: 14, textAlign: 'left' }}>{message}</div>}
@@ -200,11 +217,6 @@ export default function Simple({
         )}
       </div>
 
-      <p style={{ textAlign: 'center' }}>
-        <button className="discret" onClick={onOuvrirAvance}>
-          Analyse détaillée (avancé)
-        </button>
-      </p>
     </div>
   )
 }
