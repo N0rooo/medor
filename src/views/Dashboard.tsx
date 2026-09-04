@@ -1338,8 +1338,6 @@ export function Newsletters({
   const [statuts, setStatuts] = useState<Record<string, string>>({})
   const [occupes, setOccupes] = useState<Record<string, boolean>>({})
   const [armeSuppr, setArmeSuppr] = useState<string | null>(null)
-  const [armeMasse, setArmeMasse] = useState<'corbeille' | 'desabo' | null>(null)
-  const [masseEnCours, setMasseEnCours] = useState<'corbeille' | 'desabo' | null>(null)
   const [rechercheNl, setRechercheNl] = useState('')
   const [tri, setTri] = useState<'volume' | 'lecture' | 'date' | 'nom'>('volume')
 
@@ -1412,66 +1410,6 @@ export function Newsletters({
 
   // Seuls les expéditeurs déjà passés à la corbeille sortent du pot : un
   // désabonnement ne supprime aucun mail, il ne change donc pas ce total.
-  const restantes = lignes.filter((s) => !(statuts[s.key] ?? '').startsWith('Supprim'))
-  const desabonnables = restantes.filter(
-    (s) => s.unsubscribeHttp && !statuts[s.key] && (s.unsubscribedAt == null || s.stillMailing)
-  )
-  const totalMailsRestants = restantes.reduce((n, s) => n + s.total, 0)
-
-  const desabonnerTout = async () => {
-    setArmeMasse(null)
-    setMasseEnCours('desabo')
-    try {
-      const res = await api.unsubscribeMany(
-        accountId,
-        desabonnables.map((s) => s.key)
-      )
-      setStatuts((st) => {
-        const suivant = { ...st }
-        for (const [key, statut] of Object.entries(res)) {
-          suivant[key] =
-            statut === 'ok'
-              ? '✓ Désabonnement demandé'
-              : statut === 'lien'
-                ? 'Lien à ouvrir manuellement'
-                : statut
-        }
-        return suivant
-      })
-    } catch (e) {
-      const m = String(e)
-      if (!m.includes('annulée')) alert(m)
-    } finally {
-      setMasseEnCours(null)
-    }
-  }
-
-  const supprimerTout = async () => {
-    setArmeMasse(null)
-    setMasseEnCours('corbeille')
-    progresser({ done: 0, total: totalMailsRestants, label: 'Corbeille' })
-    try {
-      const n = await api.trashSenders(
-        accountId,
-        restantes.map((s) => s.key)
-      )
-      setStatuts((st) => {
-        const suivant = { ...st }
-        restantes.forEach((s) => {
-          suivant[s.key] = 'Supprimés : mails à la corbeille'
-        })
-        return suivant
-      })
-      void n
-    } catch (e) {
-      const m = String(e)
-      if (!m.includes('annulée')) alert(m)
-    } finally {
-      setMasseEnCours(null)
-      progresser(null)
-    }
-  }
-
   return (
     <div>
       <input
@@ -1485,48 +1423,8 @@ export function Newsletters({
         « Se désabonner » utilise le désabonnement en un clic quand l’expéditeur le permet, sinon
         ouvre sa page de désabonnement. Cliquez sur un en-tête de colonne pour trier.
       </p>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-        {armeMasse === null ? (
-          <>
-            <button
-              className="danger"
-              disabled={desabonnables.length === 0 || masseEnCours !== null || occupe}
-              onClick={() => setArmeMasse('desabo')}
-            >
-              {masseEnCours === 'desabo'
-                ? 'Désabonnements en cours…'
-                : `Se désabonner de tout (${desabonnables.length})`}
-            </button>
-            <button
-              className="secondaire"
-              disabled={restantes.length === 0 || masseEnCours !== null || occupe}
-              onClick={() => setArmeMasse('corbeille')}
-            >
-              {masseEnCours === 'corbeille'
-                ? 'Mise à la corbeille en cours…'
-                : `Tout mettre à la corbeille (${totalMailsRestants.toLocaleString('fr-FR')} mails)`}
-            </button>
-          </>
-        ) : (
-          <div className="erreur" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span>
-              {armeMasse === 'desabo'
-                ? `Demander le désabonnement aux ${desabonnables.length} newsletters ?`
-                : `Mettre ${totalMailsRestants.toLocaleString('fr-FR')} mails de ${restantes.length} newsletters à la corbeille ?`}
-            </span>
-            <button
-              className="danger"
-              onClick={armeMasse === 'desabo' ? desabonnerTout : supprimerTout}
-            >
-              Oui
-            </button>
-            <button className="secondaire" onClick={() => setArmeMasse(null)}>
-              Annuler
-            </button>
-          </div>
-        )}
-      </div>
       <table className="liste">
+
         <thead>
           <tr>
             <th className="triable" onClick={() => setTri('nom')}>

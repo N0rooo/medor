@@ -112,6 +112,67 @@ export default function Simple({
     return map
   }, [plan])
 
+  /** Expéditeurs commerciaux (newsletters détectées) encore présents. */
+  const commerciaux = useMemo(
+    () =>
+      (plan?.newsletters ?? [])
+        .map((k) => parCle.get(k))
+        .filter((s): s is SenderGroup => Boolean(s)),
+    [plan, parCle]
+  )
+  const desabonnables = useMemo(
+    () =>
+      commerciaux.filter(
+        (s) => s.unsubscribeHttp && (s.unsubscribedAt == null || s.stillMailing)
+      ),
+    [commerciaux]
+  )
+  const totalCommerciaux = useMemo(
+    () => commerciaux.reduce((n, s) => n + s.total, 0),
+    [commerciaux]
+  )
+
+  /** Confirmation avec sélection : on décoche ce que Médor doit épargner. */
+  const [confirmation, setConfirmation] = useState<'supprimer' | 'desabonner' | null>(null)
+  const [coches, setCoches] = useState<Record<string, boolean>>({})
+
+  const ouvrirConfirmation = (mode: 'supprimer' | 'desabonner') => {
+    const liste = mode === 'supprimer' ? commerciaux : desabonnables
+    const c: Record<string, boolean> = {}
+    for (const s of liste) c[s.key] = true
+    setCoches(c)
+    setMessage(null)
+    setErreur(null)
+    setConfirmation(mode)
+  }
+
+  const executerConfirmation = async () => {
+    const mode = confirmation
+    const liste = mode === 'supprimer' ? commerciaux : desabonnables
+    const cles = liste.filter((s) => coches[s.key] !== false).map((s) => s.key)
+    setConfirmation(null)
+    if (!mode || cles.length === 0) return
+    try {
+      if (mode === 'supprimer') {
+        const n = await api.trashSenders(accountId, cles)
+        setMessage(
+          `${n.toLocaleString('fr-FR')} mails commerciaux supprimés (corbeille du compte, récupérables ~30 jours).`
+        )
+      } else {
+        const res = await api.unsubscribeMany(accountId, cles)
+        const ok = Object.values(res).filter((v) => v === 'ok').length
+        const autres = cles.length - ok
+        setMessage(
+          `Désabonnement demandé pour ${ok} newsletters${autres > 0 ? ` (${autres} sans lien direct — voir la liste en dessous)` : ''}.`
+        )
+      }
+      recharger()
+    } catch (e) {
+      const m = String(e)
+      if (!m.includes('annulée')) setErreur(m)
+    }
+  }
+
   const ranger = async () => {
     setMessage(null)
     setErreur(null)
@@ -173,6 +234,32 @@ export default function Simple({
         <button className="principal large" onClick={ranger} disabled={occupe}>
           {occupe ? 'Médor s’active…' : 'Ranger ma boîte'}
         </button>
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            marginTop: 12
+          }}
+        >
+          <button
+            className="secondaire"
+            disabled={occupe || commerciaux.length === 0}
+            onClick={() => ouvrirConfirmation('supprimer')}
+          >
+            Supprimer les mails commerciaux
+            {totalCommerciaux > 0 ? ` (${totalCommerciaux.toLocaleString('fr-FR')} mails)` : ''}
+          </button>
+          <button
+            className="secondaire"
+            disabled={occupe || desabonnables.length === 0}
+            onClick={() => ouvrirConfirmation('desabonner')}
+          >
+            Se désabonner des newsletters
+            {desabonnables.length > 0 ? ` (${desabonnables.length})` : ''}
+          </button>
+        </div>
         {(dernier || prochaine) && (
           <p className="precision" style={{ marginTop: 16, color: 'var(--gris)', fontSize: 13 }}>
             {dernier && <>Dernier passage : {dernier}</>}
@@ -191,6 +278,81 @@ export default function Simple({
           </details>
         )}
       </div>
+
+      {confirmation && (
+        <div className="carte ombre">
+          <h2 style={{ margin: 0 }}>
+            {confirmation === 'supprimer'
+              ? 'Supprimer les mails commerciaux'
+              : 'Se désabonner des newsletters'}
+          </h2>
+          <p className="aide" style={{ margin: '4px 0 10px' }}>
+            Décochez ce que Médor doit laisser tranquille, puis confirmez.
+            {confirmation === 'supprimer'
+              ? ' Les mails partent à la corbeille du compte (récupérables ~30 jours).'
+              : ' Un désabonnement en un clic est demandé à chaque expéditeur coché.'}
+          </p>
+          <div
+            style={{
+              maxHeight: 320,
+              overflowY: 'auto',
+              border: '1px solid var(--ligne)',
+              borderRadius: 10,
+              padding: '2px 14px'
+            }}
+          >
+            {(confirmation === 'supprimer' ? commerciaux : desabonnables).map((s) => (
+              <label
+                key={s.key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '7px 0',
+                  borderBottom: '1px solid var(--ligne)',
+                  cursor: 'pointer'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={coches[s.key] !== false}
+                  onChange={(e) => setCoches((c) => ({ ...c, [s.key]: e.target.checked }))}
+                />
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {s.name || s.address}{' '}
+                  <span className="mono" style={{ color: 'var(--gris)', fontSize: 12 }}>
+                    {s.address}
+                  </span>
+                </span>
+                <span className="aide" style={{ whiteSpace: 'nowrap' }}>
+                  {s.total.toLocaleString('fr-FR')} mails
+                </span>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+            <button className="danger" onClick={executerConfirmation} disabled={occupe}>
+              {confirmation === 'supprimer'
+                ? `Supprimer ${(confirmation === 'supprimer' ? commerciaux : desabonnables)
+                    .filter((s) => coches[s.key] !== false)
+                    .reduce((n, s) => n + s.total, 0)
+                    .toLocaleString('fr-FR')} mails`
+                : `Se désabonner de ${desabonnables.filter((s) => coches[s.key] !== false).length} newsletters`}
+            </button>
+            <button className="secondaire" onClick={() => setConfirmation(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="carte ombre">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

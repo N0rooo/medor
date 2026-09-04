@@ -1,6 +1,6 @@
 {
   "name": "medor",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "Rangez votre boîte mail automatiquement : libellés intelligents, archivage des mails lus, tri des newsletters.",
   "author": "Thomas Aubert",
   "license": "MIT",
