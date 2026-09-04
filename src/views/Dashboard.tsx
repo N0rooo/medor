@@ -1328,7 +1328,12 @@ export function Newsletters({
                     // désabonner ensuite.
                     const st = statuts[s.key] ?? ''
                     const dejaSupprime = st.startsWith('🗑️')
-                    const dejaDesabonne = st.startsWith('✓') || st.startsWith('Lien')
+                    // Un désabonnement enregistré (badge « ✓ désabonné ») masque
+                    // aussi le bouton — sauf si l'expéditeur écrit encore.
+                    const dejaDesabonne =
+                      st.startsWith('✓') ||
+                      st.startsWith('Lien') ||
+                      (s.unsubscribedAt != null && !s.stillMailing)
                     if (armeSuppr === s.key) {
                       return (
                         <>
