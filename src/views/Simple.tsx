@@ -4,10 +4,15 @@ import type { ActionsSemaine, AppBootstrap, JournalEntry, Plan, SenderGroup } fr
 import Mascotte from '../Mascotte'
 import CompteRendu from '../CompteRendu'
 
+/** Un expéditeur ciblé par une action de masse, avec son compte d'origine. */
+type Cible = { compte: string; email: string; s: SenderGroup }
+
+const cibleId = (c: Cible) => `${c.compte}|${c.s.key}`
+
 /**
- * L'écran principal du Médor simple : un gros bouton qui range tout seul
- * (mails lus uniquement — les non-lus restent visibles dans la boîte de
- * réception), et la liste des newsletters juste en dessous. Rien d'autre.
+ * L'écran principal du Médor simple : trois gestes (ranger, supprimer le
+ * commercial, se désabonner) sur le compte choisi — ou sur TOUTES les boîtes
+ * d'un coup via le jeton « Tous les comptes ».
  */
 export default function Simple({
   boot,
@@ -24,7 +29,9 @@ export default function Simple({
   onSelectAccount: (id: string) => void
   onAddAccount: () => void
 }) {
+  const [tous, setTous] = useState(false)
   const [plan, setPlan] = useState<Plan | null>(null)
+  const [plansTous, setPlansTous] = useState<Record<string, Plan | null>>({})
   const [dernier, setDernier] = useState<string | null>(null)
   const [prochaine, setProchaine] = useState<string | null>(null)
   const [actions, setActions] = useState<ActionsSemaine | null>(null)
@@ -36,6 +43,8 @@ export default function Simple({
   const [erreur, setErreur] = useState<string | null>(null)
   const [chargement, setChargement] = useState(false)
   const occupePrec = useRef(occupe)
+
+  const emailDe = (id: string) => boot.accounts.find((a) => a.id === id)?.email ?? id
 
   const recharger = async () => {
     try {
@@ -89,52 +98,92 @@ export default function Simple({
     }
   }
 
+  const rechargerTous = async () => {
+    const suivant: Record<string, Plan | null> = {}
+    for (const a of boot.accounts) {
+      try {
+        suivant[a.id] = await api.getLastPlan(a.id)
+      } catch {
+        suivant[a.id] = null
+      }
+    }
+    setPlansTous(suivant)
+  }
+
+  const chargerActions = async () => {
+    try {
+      if (!tous) {
+        setActions(await api.getActions(accountId))
+        return
+      }
+      const fusion: ActionsSemaine = { actions: [], generatedAt: 0 }
+      for (const a of boot.accounts) {
+        const r = await api.getActions(a.id)
+        if (r) {
+          fusion.generatedAt = Math.max(fusion.generatedAt, r.generatedAt)
+          fusion.actions.push(
+            ...r.actions.map((x) => ({ ...x, expediteur: `${x.expediteur} · ${a.email}` }))
+          )
+        }
+      }
+      setActions(fusion.generatedAt > 0 ? fusion : null)
+    } catch {
+      /* silencieux */
+    }
+  }
+
   useEffect(() => {
     setPlan(null)
     setDernier(null)
     setMessage(null)
     setActions(null)
     setActionsErreur(null)
-    recharger()
-    api
-      .getActions(accountId)
-      .then((a) => setActions(a))
-      .catch(() => {})
+    if (tous) {
+      rechargerTous()
+    } else {
+      recharger()
+    }
+    chargerActions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId])
+  }, [accountId, tous])
 
   // Une opération vient de finir (la nôtre ou une automatique) : on recharge.
   useEffect(() => {
     if (occupePrec.current && !occupe && actif) {
-      recharger()
+      if (tous) {
+        rechargerTous()
+      } else {
+        recharger()
+      }
     }
     occupePrec.current = occupe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [occupe, actif])
 
-  const parCle = useMemo(() => {
-    const map = new Map<string, SenderGroup>()
-    plan?.senders.forEach((s) => map.set(s.key, s))
-    return map
-  }, [plan])
-
-  /** Expéditeurs commerciaux (newsletters détectées) encore présents. */
-  const commerciaux = useMemo(
-    () =>
-      (plan?.newsletters ?? [])
+  /** Cibles commerciales (newsletters détectées), selon le mode. */
+  const commerciaux = useMemo<Cible[]>(() => {
+    const depuis = (compte: string, email: string, p: Plan | null): Cible[] => {
+      if (!p) return []
+      const parCle = new Map(p.senders.map((s) => [s.key, s]))
+      return p.newsletters
         .map((k) => parCle.get(k))
-        .filter((s): s is SenderGroup => Boolean(s)),
-    [plan, parCle]
-  )
+        .filter((s): s is SenderGroup => Boolean(s))
+        .map((s) => ({ compte, email, s }))
+    }
+    if (!tous) return depuis(accountId, emailDe(accountId), plan)
+    return boot.accounts.flatMap((a) => depuis(a.id, a.email, plansTous[a.id] ?? null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tous, plan, plansTous, accountId, boot.accounts])
+
   const desabonnables = useMemo(
     () =>
       commerciaux.filter(
-        (s) => s.unsubscribeHttp && (s.unsubscribedAt == null || s.stillMailing)
+        (c) => c.s.unsubscribeHttp && (c.s.unsubscribedAt == null || c.s.stillMailing)
       ),
     [commerciaux]
   )
   const totalCommerciaux = useMemo(
-    () => commerciaux.reduce((n, s) => n + s.total, 0),
+    () => commerciaux.reduce((n, c) => n + c.s.total, 0),
     [commerciaux]
   )
 
@@ -145,7 +194,7 @@ export default function Simple({
   const ouvrirConfirmation = (mode: 'supprimer' | 'desabonner') => {
     const liste = mode === 'supprimer' ? commerciaux : desabonnables
     const c: Record<string, boolean> = {}
-    for (const s of liste) c[s.key] = true
+    for (const cible of liste) c[cibleId(cible)] = true
     setCoches(c)
     setMessage(null)
     setErreur(null)
@@ -155,24 +204,47 @@ export default function Simple({
   const executerConfirmation = async () => {
     const mode = confirmation
     const liste = mode === 'supprimer' ? commerciaux : desabonnables
-    const cles = liste.filter((s) => coches[s.key] !== false).map((s) => s.key)
+    const choisis = liste.filter((c) => coches[cibleId(c)] !== false)
     setConfirmation(null)
-    if (!mode || cles.length === 0) return
+    if (!mode || choisis.length === 0) return
+    // Groupé par compte, exécuté boîte par boîte.
+    const parCompte = new Map<string, string[]>()
+    for (const c of choisis) {
+      const l = parCompte.get(c.compte) ?? []
+      l.push(c.s.key)
+      parCompte.set(c.compte, l)
+    }
     try {
       if (mode === 'supprimer') {
-        const n = await api.trashSenders(accountId, cles)
+        let total = 0
+        for (const [compte, cles] of parCompte) {
+          total += await api.trashSenders(compte, cles)
+        }
         setMessage(
-          `${n.toLocaleString('fr-FR')} mails commerciaux supprimés (corbeille du compte, récupérables ~30 jours).`
+          `${total.toLocaleString('fr-FR')} mails commerciaux supprimés${
+            parCompte.size > 1 ? ` sur ${parCompte.size} comptes` : ''
+          } (corbeille, récupérables ~30 jours).`
         )
       } else {
-        const res = await api.unsubscribeMany(accountId, cles)
-        const ok = Object.values(res).filter((v) => v === 'ok').length
-        const autres = cles.length - ok
+        let ok = 0
+        let demandes = 0
+        for (const [compte, cles] of parCompte) {
+          demandes += cles.length
+          const res = await api.unsubscribeMany(compte, cles)
+          ok += Object.values(res).filter((v) => v === 'ok').length
+        }
+        const autres = demandes - ok
         setMessage(
-          `Désabonnement demandé pour ${ok} newsletters${autres > 0 ? ` (${autres} sans lien direct — voir la liste en dessous)` : ''}.`
+          `Désabonnement demandé pour ${ok} newsletters${
+            parCompte.size > 1 ? ` sur ${parCompte.size} comptes` : ''
+          }${autres > 0 ? ` (${autres} sans lien direct)` : ''}.`
         )
       }
-      recharger()
+      if (tous) {
+        rechargerTous()
+      } else {
+        recharger()
+      }
     } catch (e) {
       const m = String(e)
       if (!m.includes('annulée')) setErreur(m)
@@ -183,14 +255,35 @@ export default function Simple({
     setMessage(null)
     setErreur(null)
     try {
-      const res = await api.sortEverything(accountId, 'lus', false)
+      if (!tous) {
+        const res = await api.sortEverything(accountId, 'lus', false)
+        setMessage(
+          res.archived > 0
+            ? `${res.archived.toLocaleString('fr-FR')} mails rangés. Les non-lus restent dans votre boîte de réception.`
+            : 'Rien de nouveau à ranger : votre boîte est déjà propre.'
+        )
+        setMontrerDetail(res.archived > 0)
+        recharger()
+        return
+      }
+      // Toutes les boîtes, l'une après l'autre.
+      const bilans: string[] = []
+      let total = 0
+      for (const a of boot.accounts) {
+        try {
+          const res = await api.sortEverything(a.id, 'lus', false)
+          total += res.archived
+          bilans.push(`${a.email} : ${res.archived.toLocaleString('fr-FR')} mails`)
+        } catch (e) {
+          const m = String(e)
+          if (m.includes('annulée')) throw e
+          bilans.push(`${a.email} : ${m}`)
+        }
+      }
       setMessage(
-        res.archived > 0
-          ? `${res.archived.toLocaleString('fr-FR')} mails rangés. Les non-lus restent dans votre boîte de réception.`
-          : 'Rien de nouveau à ranger : votre boîte est déjà propre.'
+        `${total.toLocaleString('fr-FR')} mails rangés sur ${boot.accounts.length} comptes — ${bilans.join(' · ')}`
       )
-      setMontrerDetail(res.archived > 0)
-      recharger()
+      rechargerTous()
     } catch (e) {
       const m = String(e)
       if (!m.includes('annulée')) setErreur(m)
@@ -201,7 +294,27 @@ export default function Simple({
     setActionsEnCours(true)
     setActionsErreur(null)
     try {
-      setActions(await api.actionItems(accountId))
+      if (!tous) {
+        setActions(await api.actionItems(accountId))
+      } else {
+        const fusion: ActionsSemaine = {
+          actions: [],
+          generatedAt: Math.floor(Date.now() / 1000)
+        }
+        for (const a of boot.accounts) {
+          try {
+            const r = await api.actionItems(a.id)
+            fusion.actions.push(
+              ...r.actions.map((x) => ({ ...x, expediteur: `${x.expediteur} · ${a.email}` }))
+            )
+          } catch (e) {
+            const m = String(e)
+            if (m.includes('annulée')) throw e
+            /* compte sans IA ou en erreur : on continue */
+          }
+        }
+        setActions(fusion)
+      }
     } catch (e) {
       const m = String(e)
       if (!m.includes('annulée')) setActionsErreur(m)
@@ -223,14 +336,25 @@ export default function Simple({
     }
   }
 
+  const listeConfirmation = confirmation === 'supprimer' ? commerciaux : desabonnables
+
   return (
     <div className="colonne">
       <div className="barre-comptes">
+        <button
+          className={`compte-jeton ${tous ? 'choisi' : ''}`}
+          onClick={() => setTous(true)}
+        >
+          Tous les comptes
+        </button>
         {boot.accounts.map((a) => (
           <button
             key={a.id}
-            className={`compte-jeton ${a.id === accountId ? 'choisi' : ''}`}
-            onClick={() => onSelectAccount(a.id)}
+            className={`compte-jeton ${!tous && a.id === accountId ? 'choisi' : ''}`}
+            onClick={() => {
+              setTous(false)
+              onSelectAccount(a.id)
+            }}
           >
             {a.email}
           </button>
@@ -242,14 +366,20 @@ export default function Simple({
 
       <div className="carte ombre heros" style={{ textAlign: 'center', padding: '46px 30px 34px' }}>
         <Mascotte taille={84} style={{ marginBottom: 14 }} />
-        <h1 style={{ marginBottom: 6 }}>Médor range, vous vivez.</h1>
+        <h1 style={{ marginBottom: 6 }}>
+          {tous ? 'Toutes vos boîtes, un seul geste.' : 'Médor range, vous vivez.'}
+        </h1>
         <p className="sous-titre" style={{ maxWidth: 480, margin: '0 auto 26px' }}>
           Un clic : les mails déjà lus filent dans leurs libellés, les newsletters dans
           « Newsletters ». Les non-lus ne bougent pas. Rien n'est supprimé, tout est annulable
           depuis le Journal.
         </p>
         <button className="principal large" onClick={ranger} disabled={occupe}>
-          {occupe ? 'Médor s’active…' : 'Analyser et ranger ma boîte'}
+          {occupe
+            ? 'Médor s’active…'
+            : tous
+              ? `Analyser et ranger mes ${boot.accounts.length} boîtes`
+              : 'Analyser et ranger ma boîte'}
         </button>
         <div
           style={{
@@ -277,16 +407,16 @@ export default function Simple({
             {desabonnables.length > 0 ? ` (${desabonnables.length})` : ''}
           </button>
         </div>
-        {(dernier || prochaine) && (
+        {((!tous && dernier) || prochaine) && (
           <p className="precision" style={{ marginTop: 16, color: 'var(--gris)', fontSize: 13 }}>
-            {dernier && <>Dernier passage : {dernier}</>}
-            {dernier && prochaine && ' · '}
+            {!tous && dernier && <>Dernier passage : {dernier}</>}
+            {!tous && dernier && prochaine && ' · '}
             {prochaine && <>Prochaine analyse auto : {prochaine}</>}
           </p>
         )}
         {message && <div className="info" style={{ marginTop: 14, textAlign: 'left' }}>{message}</div>}
         {erreur && <div className="erreur" style={{ marginTop: 14, textAlign: 'left' }}>{erreur}</div>}
-        {detailPassage.length > 0 && (
+        {!tous && detailPassage.length > 0 && (
           <details open={montrerDetail} style={{ marginTop: 12, textAlign: 'left' }}>
             <summary className="aide" style={{ cursor: 'pointer' }}>
               Ce que Médor a fait ({detailPassage.length} libellés)
@@ -322,7 +452,11 @@ export default function Simple({
             onClick={analyserSemaine}
             disabled={actionsEnCours || occupe}
           >
-            {actionsEnCours ? 'Médor relit la semaine…' : 'Analyser ma semaine'}
+            {actionsEnCours
+              ? 'Médor relit la semaine…'
+              : tous
+                ? `Analyser la semaine des ${boot.accounts.length} boîtes`
+                : 'Analyser ma semaine'}
           </button>
         </div>
         {actionsErreur && (
@@ -380,6 +514,7 @@ export default function Simple({
             {confirmation === 'supprimer'
               ? 'Supprimer les mails commerciaux'
               : 'Se désabonner des newsletters'}
+            {tous ? ` — ${boot.accounts.length} comptes` : ''}
           </h2>
           <p className="aide" style={{ margin: '4px 0 10px' }}>
             Décochez ce que Médor doit laisser tranquille, puis confirmez.
@@ -396,9 +531,9 @@ export default function Simple({
               padding: '2px 14px'
             }}
           >
-            {(confirmation === 'supprimer' ? commerciaux : desabonnables).map((s) => (
+            {listeConfirmation.map((c) => (
               <label
-                key={s.key}
+                key={cibleId(c)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -410,8 +545,10 @@ export default function Simple({
               >
                 <input
                   type="checkbox"
-                  checked={coches[s.key] !== false}
-                  onChange={(e) => setCoches((c) => ({ ...c, [s.key]: e.target.checked }))}
+                  checked={coches[cibleId(c)] !== false}
+                  onChange={(e) =>
+                    setCoches((prev) => ({ ...prev, [cibleId(c)]: e.target.checked }))
+                  }
                 />
                 <span
                   style={{
@@ -422,17 +559,16 @@ export default function Simple({
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {s.name || s.address}{' '}
+                  {c.s.name || c.s.address}{' '}
                   <span className="mono" style={{ color: 'var(--gris)', fontSize: 12 }}>
-                    {s.address}
+                    {c.s.address}
                   </span>
                 </span>
-                {s.stillMailing && (
-                  <span className="badge spam">écrit encore</span>
-                )}
+                {tous && <span className="badge existant">{c.email}</span>}
+                {c.s.stillMailing && <span className="badge spam">écrit encore</span>}
                 <span className="aide" style={{ whiteSpace: 'nowrap' }}>
-                  {s.total.toLocaleString('fr-FR')} mails ·{' '}
-                  {s.total > 0 ? Math.round((s.read / s.total) * 100) : 0} % lus
+                  {c.s.total.toLocaleString('fr-FR')} mails ·{' '}
+                  {c.s.total > 0 ? Math.round((c.s.read / c.s.total) * 100) : 0} % lus
                 </span>
               </label>
             ))}
@@ -440,11 +576,13 @@ export default function Simple({
           <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
             <button className="danger" onClick={executerConfirmation} disabled={occupe}>
               {confirmation === 'supprimer'
-                ? `Supprimer ${(confirmation === 'supprimer' ? commerciaux : desabonnables)
-                    .filter((s) => coches[s.key] !== false)
-                    .reduce((n, s) => n + s.total, 0)
+                ? `Supprimer ${listeConfirmation
+                    .filter((c) => coches[cibleId(c)] !== false)
+                    .reduce((n, c) => n + c.s.total, 0)
                     .toLocaleString('fr-FR')} mails`
-                : `Se désabonner de ${desabonnables.filter((s) => coches[s.key] !== false).length} newsletters`}
+                : `Se désabonner de ${
+                    listeConfirmation.filter((c) => coches[cibleId(c)] !== false).length
+                  } newsletters`}
             </button>
             <button className="secondaire" onClick={() => setConfirmation(null)}>
               Annuler
@@ -454,12 +592,13 @@ export default function Simple({
         </div>
       )}
 
-      <p style={{ textAlign: 'center' }}>
-        <button className="discret" onClick={inventorier} disabled={chargement || occupe}>
-          {chargement ? 'Inventaire…' : 'Actualiser les compteurs (relire les dossiers)'}
-        </button>
-      </p>
-
+      {!tous && (
+        <p style={{ textAlign: 'center' }}>
+          <button className="discret" onClick={inventorier} disabled={chargement || occupe}>
+            {chargement ? 'Inventaire…' : 'Actualiser les compteurs (relire les dossiers)'}
+          </button>
+        </p>
+      )}
     </div>
   )
 }
