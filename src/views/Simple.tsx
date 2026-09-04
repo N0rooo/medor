@@ -55,7 +55,19 @@ export default function Simple({
             })} — ${passage.archived.toLocaleString('fr-FR')} mails rangés`
           : null
       )
-      setDetailPassage(passage?.detail ?? [])
+      // Le compte-rendu ne montre pas ce qui n'existe plus : les libellés
+      // supprimés depuis le passage sont filtrés (dès que l'inventaire de
+      // « Ma boîte » est plus récent que le passage).
+      let lignes = passage?.detail ?? []
+      const arbre = await api.getLastTree(accountId)
+      if (arbre && passage && arbre.updatedAt > passage.ts) {
+        const existants = new Set(arbre.dossiers.map((d) => d.name))
+        lignes = lignes.filter((l) => {
+          const m = l.match(/^« (.+) » — /)
+          return !m || existants.has(m[1])
+        })
+      }
+      setDetailPassage(lignes)
       const prochain = await api.autoNext()
       if (prochain == null) {
         setProchaine(null)
