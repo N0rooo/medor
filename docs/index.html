@@ -68,7 +68,7 @@
     }
     .timbre {
       position: absolute; top: 26px; right: 2%;
-      width: 86px; height: 104px; padding: 7px;
+      width: 86px; padding: 7px 7px 5px;
       background: #fff; border: 2px dashed var(--rouge); border-radius: 6px;
       transform: rotate(7deg); opacity: .95;
       box-shadow: 0 10px 24px rgba(29,42,58,.12);
@@ -76,7 +76,8 @@
     .timbre img { width: 100%; height: 74px; object-fit: cover; border-radius: 4px; }
     .timbre span {
       display: block; text-align: center; font-family: var(--mono);
-      font-size: 9.5px; color: var(--rouge); margin-top: 3px; letter-spacing: .12em;
+      font-size: 9px; color: var(--rouge); margin-top: 4px; letter-spacing: .06em;
+      white-space: nowrap;
     }
     @media (max-width: 900px) { .timbre { display: none; } }
     .surtitre {
@@ -278,7 +279,7 @@
     <section class="heros">
       <div class="timbre" aria-hidden="true">
         <img src="medor.png" alt="">
-        <span>MÉDOR · 2026</span>
+        <span>MÉDOR 2026</span>
       </div>
       <img class="mascotte" src="medor.png" alt="Médor, le chien qui range ta boîte mail">
       <h1>Le chien qui range<br>ta boîte mail.</h1>
