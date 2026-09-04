@@ -887,6 +887,27 @@ fn apply_blocking(
             }
         }
 
+        // Détail par libellé pour le Journal.
+        let mut par_libelle: Vec<(String, usize)> = selection
+            .labels
+            .iter()
+            .map(|l| {
+                let n: usize = l
+                    .sender_keys
+                    .iter()
+                    .filter_map(|k| uids.get(k))
+                    .map(|g| g.all.len())
+                    .sum();
+                (l.name.clone(), n)
+            })
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        par_libelle.sort_by(|a, b| b.1.cmp(&a.1));
+        let detail_rangement: Vec<String> = par_libelle
+            .iter()
+            .map(|(nom, n)| format!("« {nom} » — {n} mails"))
+            .collect();
+
         // Journal + compteur de fierté.
         cfg.stats_archived_total += result.archived as u64;
         journal_push(
@@ -903,6 +924,8 @@ fn apply_blocking(
                 restored: 0,
                 labels_created: result.labels_created,
                 labels: selection.labels.iter().map(|l| l.name.clone()).collect(),
+                detail: detail_rangement,
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg);
@@ -1233,6 +1256,7 @@ pub async fn undo_journal_entry(app: AppHandle, entry_id: String) -> Result<Rest
                 restored: result.restored,
                 labels_created: 0,
                 labels: entry.labels.clone(),
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg2);
@@ -1313,6 +1337,7 @@ pub async fn restore_inbox(app: AppHandle, account_id: String) -> Result<Restore
                 restored: result.restored,
                 labels_created: 0,
                 labels: Vec::new(),
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg2);
@@ -1382,6 +1407,13 @@ pub async fn trash_senders(
         };
         let count =
             organizer::trash_senders_by_address(&mut session, &cibles, &busy.cancel, &emit)?;
+        let detail_corbeille: Vec<String> = cibles
+            .iter()
+            .map(|(adresse, label)| match label {
+                Some(l) => format!("{adresse} — rangé dans « {l} »"),
+                None => adresse.clone(),
+            })
+            .collect();
         let _ = session.logout();
 
         // Ces mails ne sont plus dans la boîte : on les retire du plan en cache.
@@ -1407,6 +1439,8 @@ pub async fn trash_senders(
                 restored: 0,
                 labels_created: 0,
                 labels: Vec::new(),
+                detail: detail_corbeille,
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg2);
@@ -1669,6 +1703,11 @@ pub async fn trash_folder(
                 restored: 0,
                 labels_created: 0,
                 labels: vec![folder.clone()],
+                detail: vec![format!(
+                    "« {folder} » — {count} mails supprimés{}",
+                    if folder_deleted { " · libellé supprimé" } else { "" }
+                )],
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg2);
@@ -1712,6 +1751,7 @@ pub async fn trash_folders(
 
         let mut total_trashed: u32 = 0;
         let mut deleted: Vec<String> = Vec::new();
+        let mut detail_selection: Vec<String> = Vec::new();
         let total_libelles = liste.len() as u32;
         for (index, folder) in liste.iter().enumerate() {
             if busy.annule() {
@@ -1735,6 +1775,10 @@ pub async fn trash_folders(
             match organizer::trash_folder_content(&mut session, folder, &busy.cancel, &emit) {
                 Ok((n, folder_deleted)) => {
                     total_trashed += n;
+                    detail_selection.push(format!(
+                        "« {folder} » — {n} mails supprimés{}",
+                        if folder_deleted { " · libellé supprimé" } else { "" }
+                    ));
                     if folder_deleted {
                         deleted.push(folder.clone());
                     }
@@ -1759,6 +1803,8 @@ pub async fn trash_folders(
                 restored: 0,
                 labels_created: 0,
                 labels: folders.clone(),
+                detail: detail_selection,
+                ..Default::default()
             },
         );
         store::save_config(&app, &cfg2);

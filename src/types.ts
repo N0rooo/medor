@@ -125,6 +125,7 @@ export interface JournalEntry {
   restored: number
   labelsCreated: number
   labels: string[]
+  detail?: string[]
 }
 
 export interface BoucleProgress {

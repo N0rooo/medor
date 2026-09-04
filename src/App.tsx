@@ -29,6 +29,21 @@ export default function App() {
   // Nombre d'opérations réellement en cours, annoncé par le backend (op-etat)
   // au moment où il prend/relâche le verrou : le bandeau ne devine plus rien.
   const [opsActives, setOpsActives] = useState(0)
+  /** Entrées du Journal pas encore vues (pastille sur l'onglet). */
+  const [journalNonVus, setJournalNonVus] = useState(0)
+  /** Récap de ce que Médor a fait pendant l'absence (fermeture de l'app). */
+  const [recap, setRecap] = useState<string | null>(null)
+
+  const majPastilleJournal = useCallback(async () => {
+    try {
+      const entrees = await api.getJournal()
+      const vu = Number(localStorage.getItem('medorJournalVuTs') ?? '0')
+      setJournalNonVus(entrees.filter((e) => e.ts > vu).length)
+      return { entrees, vu }
+    } catch {
+      return null
+    }
+  }, [])
 
   useEffect(() => {
     const desabos = [
@@ -91,7 +106,43 @@ export default function App() {
       setVue(state.accounts.length === 0 ? 'accueil' : 'tableau')
       setCompteId(state.accounts[0]?.id ?? null)
     })
-  }, [rafraichir])
+    // Récap d'absence : ce que Médor a fait depuis la dernière fois qu'on a
+    // regardé (rangements automatiques pendant que l'app était fermée…).
+    majPastilleJournal().then((r) => {
+      if (!r || r.vu === 0) return
+      const absentes = r.entrees.filter((e) => e.ts > r.vu)
+      if (absentes.length === 0) return
+      const ranges = absentes.reduce((n, e) => n + e.archived, 0)
+      const corbeille = absentes.reduce((n, e) => n + e.trashed, 0)
+      const restaures = absentes.reduce((n, e) => n + e.restored, 0)
+      const morceaux: string[] = []
+      if (ranges > 0) morceaux.push(`${ranges.toLocaleString('fr-FR')} mails rangés`)
+      if (corbeille > 0) morceaux.push(`${corbeille.toLocaleString('fr-FR')} mis à la corbeille`)
+      if (restaures > 0) morceaux.push(`${restaures.toLocaleString('fr-FR')} restaurés`)
+      setRecap(
+        `${absentes.length} action${absentes.length > 1 ? 's' : ''} — ${
+          morceaux.length > 0 ? morceaux.join(' · ') : 'aucun mail déplacé'
+        }`
+      )
+    })
+  }, [rafraichir, majPastilleJournal])
+
+  // Une opération vient de finir : la pastille du Journal se met à jour.
+  useEffect(() => {
+    if (opsActives > 0) return
+    const t = setTimeout(() => {
+      majPastilleJournal()
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [opsActives, majPastilleJournal])
+
+  // Ouvrir le Journal marque tout comme vu.
+  useEffect(() => {
+    if (vue === 'journal') {
+      localStorage.setItem('medorJournalVuTs', String(Math.floor(Date.now() / 1000)))
+      setJournalNonVus(0)
+    }
+  }, [vue, journalNonVus])
 
   if (!boot) {
     return (
@@ -137,6 +188,7 @@ export default function App() {
             </button>
             <button className={vue === 'journal' ? 'actif' : ''} onClick={() => setVue('journal')}>
               Journal
+              {journalNonVus > 0 && <span className="pastille">{journalNonVus}</span>}
             </button>
             <button className={vue === 'reglages' ? 'actif' : ''} onClick={() => setVue('reglages')}>
               Réglages
@@ -177,6 +229,38 @@ export default function App() {
         )}
         {vue === 'journal' && <Journal bloque={opsActives > 0} />}
         {vue === 'reglages' && <Reglages boot={boot} occupe={opsActives > 0} onChanged={rafraichir} />}
+        {recap && !maj && (
+          <div className="popup-auto">
+            <div className="popup-auto-tete">
+              <Mascotte taille={34} />
+              <div>
+                <strong>Pendant votre absence 🐶</strong>
+                <p>{recap}</p>
+              </div>
+            </div>
+            <div className="popup-auto-actions">
+              <button
+                className="secondaire"
+                onClick={() => {
+                  localStorage.setItem('medorJournalVuTs', String(Math.floor(Date.now() / 1000)))
+                  setJournalNonVus(0)
+                  setRecap(null)
+                }}
+              >
+                OK
+              </button>
+              <button
+                className="principal"
+                onClick={() => {
+                  setRecap(null)
+                  setVue('journal')
+                }}
+              >
+                Voir le Journal
+              </button>
+            </div>
+          </div>
+        )}
         {maj && (
           <div className="popup-auto">
             <div className="popup-auto-tete">

@@ -223,6 +223,8 @@ pub struct JournalEntry {
     pub labels_created: u32,
     /// Libellés touchés — permet « vider ces libellés vers la boîte de réception ».
     pub labels: Vec<String>,
+    /// Lignes de détail lisibles (« Sport/Running — 124 mails », …).
+    pub detail: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

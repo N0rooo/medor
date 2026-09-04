@@ -93,6 +93,18 @@ export default function Journal({ bloque }: { bloque: boolean }) {
               <> · {e.labels.length} libellés touchés</>
             )}
           </p>
+          {(e.detail?.length ?? 0) > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary className="aide" style={{ cursor: 'pointer' }}>
+                Voir le détail ({e.detail!.length})
+              </summary>
+              <ul className="aide" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {e.detail!.map((ligne, i) => (
+                  <li key={i}>{ligne}</li>
+                ))}
+              </ul>
+            </details>
+          )}
           {(e.kind === 'rangement' || e.kind === 'auto') && e.labels.length > 0 && index !== 0 && (
             <p className="aide" style={{ margin: '8px 0 0', fontStyle: 'italic' }}>
               Annulable seulement tant que c'est la dernière action — des rangements plus
