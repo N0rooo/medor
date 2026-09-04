@@ -1660,6 +1660,33 @@ pub async fn mailbox_tree(app: AppHandle, account_id: String) -> Result<Vec<Doss
         for r in resultats {
             dossiers.extend(r?);
         }
+
+        // Jamais de libellé vide : les dossiers à 0 mail sans sous-dossiers
+        // sont supprimés au passage (enfants d'abord, les parents devenus
+        // vides tombent dans la même passe).
+        let mut a_supprimer: Vec<String> = Vec::new();
+        let mut restants: Vec<&DossierCompte> = dossiers.iter().collect();
+        restants.sort_by_key(|d| std::cmp::Reverse(d.name.matches('/').count()));
+        let mut vivants: std::collections::HashSet<String> =
+            dossiers.iter().map(|d| d.name.clone()).collect();
+        for d in restants {
+            let prefixe = format!("{}/", d.name);
+            let a_enfant = vivants.iter().any(|n| n.starts_with(&prefixe));
+            if d.total == 0 && !a_enfant {
+                a_supprimer.push(d.name.clone());
+                vivants.remove(&d.name);
+            }
+        }
+        if !a_supprimer.is_empty() {
+            if let Ok(mut nettoyage) = crate::mail::open_session(&app, &account) {
+                for nom in &a_supprimer {
+                    let wire = crate::mail::utf7::encode(&nom.replace('/', delimiter.as_str()));
+                    let _ = nettoyage.delete(&wire);
+                }
+                let _ = nettoyage.logout();
+            }
+            dossiers.retain(|d| !a_supprimer.contains(&d.name));
+        }
         dossiers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         // Persiste : la vue « Ma boîte » se réaffiche instantanément au
         // prochain lancement, puis se rafraîchit en arrière-plan.
