@@ -267,6 +267,25 @@
     footer.site a { color: var(--bleu); text-decoration: none; }
     footer.site a:hover { text-decoration: underline; }
     footer.site .droite { margin-left: auto; }
+
+    /* ------------------------ animations : entrées, sorties, parallaxe */
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        opacity: 0;
+        transform: translate(var(--tx, 0px), var(--ty, 26px)) rotate(var(--rot, 0deg));
+        transition: opacity 0.6s ease var(--att, 0ms),
+                    transform 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) var(--att, 0ms);
+      }
+      .reveal.visible { opacity: 1; transform: translate(0, 0) rotate(var(--rot, 0deg)); }
+      @keyframes apparait { from { opacity: 0; transform: translateY(20px); } }
+      .heros h1 { animation: apparait 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) both 0.05s; }
+      .heros .sous { animation: apparait 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) both 0.15s; }
+      .cta-rang { animation: apparait 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) both 0.25s; }
+      .heros .precision, .note-ouverture { animation: apparait 0.65s ease both 0.35s; }
+      @keyframes arriveDemo { from { opacity: 0; transform: translateY(34px) rotate(-0.6deg); } }
+      .demo { animation: arriveDemo 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) both 0.4s; }
+    }
+    .punch { --rot: -0.5deg; }
   </style>
 </head>
 <body>
@@ -418,5 +437,38 @@
     </footer>
 
   </div>
+
+  <script>
+    (function () {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const cibles = document.querySelectorAll(
+        '.carte, .pas .un, .punch, section.privee, .tete-section, h2.section, .famille'
+      )
+      cibles.forEach(el => {
+        el.classList.add('reveal')
+        const freres = [...el.parentElement.children].filter(f => f.classList.contains('reveal'))
+        el.style.setProperty('--att', Math.min(freres.indexOf(el), 7) * 90 + 'ms')
+      })
+      const io = new IntersectionObserver(
+        entrees => entrees.forEach(e => e.target.classList.toggle('visible', e.isIntersecting)),
+        { threshold: 0.12, rootMargin: '0px 0px -30px 0px' }
+      )
+      cibles.forEach(el => io.observe(el))
+
+      const parallaxe = [
+        ['.timbre', 0.14, 'rotate(7deg)'],
+        ['.demo', -0.045, 'rotate(-0.6deg)'],
+      ].map(([sel, v, rot]) => [document.querySelector(sel), v, rot]).filter(([el]) => el)
+      let demande = null
+      function bouge() {
+        demande = null
+        for (const [el, v, rot] of parallaxe) {
+          el.style.transform = 'translateY(' + (window.scrollY * v).toFixed(1) + 'px) ' + rot
+        }
+      }
+      addEventListener('scroll', () => { if (!demande) demande = requestAnimationFrame(bouge) }, { passive: true })
+      bouge()
+    })()
+  </script>
 </body>
 </html>
